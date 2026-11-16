@@ -41,7 +41,7 @@ Not a dashboard: a board game played on a light-grid, with a visual language tak
 
 Colour means the *kind* of call, never right or wrong: red stops (Reject), green lets through (Accept, Issue), cyan passes something on. Whether a call was right is shown as a comparison, `expected [chip] = played [chip]`. A Reject that was called for is red = red: a match. A mismatch shows `≠` with a yellow tag, and when the call was the right kind but flawed, the flaw is named ("Exchange (OBO) · scope beyond consent"). The same pair appears on the card in play, in the timeline, and in the round result.
 
-Each card play stays on screen for about ten seconds (it holds above the receiver with a countdown bar) so the table can read and discuss it. Sims wait that out before moving.
+Each card play stays on screen for about five seconds (it holds above the receiver with a countdown bar) so the table can read it. Sims wait that out before moving.
 
 ## Timeline
 

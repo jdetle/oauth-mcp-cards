@@ -523,8 +523,8 @@ pub fn drive_sims(room: Arc<Mutex<Room>>) {
         // SIM_DELAY_MS overrides the pacing (tests run sims fast)
         match std::env::var("SIM_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
             Some(ms) => Duration::from_millis(ms),
-            // a card play is on screen for about 10s; a sim waits it out before moving
-            None => Duration::from_millis(if identify { 500 + jitter } else { 10_600 + jitter }),
+            // a card play is on screen for about 5s; a sim waits it out before moving
+            None => Duration::from_millis(if identify { 500 + jitter } else { 5600 + jitter }),
         }
     };
     tokio::spawn(async move {

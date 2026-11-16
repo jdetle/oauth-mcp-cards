@@ -10,7 +10,7 @@
 //!   ADMIN_PASSWORD_HASH  scrypt hash from `oauth-mcp-server hash-password`; enables /admin/
 //!   TURNSTILE_SITE_KEY, TURNSTILE_SECRET  Cloudflare Turnstile bot check on create/join/admin login
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
-//!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~10.6-11.3s, so each card can be read)
+//!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~5.6-6.3s, so each card can be read)
 mod admin;
 mod crypto;
 mod engine;
