@@ -639,3 +639,120 @@ fn paths_route_correctly_under_a_base_path() {
     assert_eq!(r("/mcp-oauthx/secret", b), "/__omcp_outside");
     assert_eq!(r("/anything", ""), "/anything");
 }
+
+// ---- ready check between rounds ---------------------------------------------------------------
+
+/// A game with a settable clock: two humans (client, application) and two sims.
+fn ready_game() -> (Game, Arc<std::sync::atomic::AtomicI64>, String, String) {
+    let clock = Arc::new(std::sync::atomic::AtomicI64::new(NOW));
+    let c = clock.clone();
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut g = Game::new("ready", scenarios()).with_clock(move || c.load(Ordering::Relaxed), move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+    let a = g.add_player("Ann", Some(Role::Client), false).id;
+    let b = g.add_player("Ben", Some(Role::Application), false).id;
+    g.host_action(&a, HostAction::AddBots, None).unwrap();
+    g.start(&a).unwrap();
+    solve(&mut g);
+    (g, clock, a, b)
+}
+
+#[test]
+fn ready_check_opens_when_a_round_ends() {
+    let (g, _, a, b) = ready_game();
+    let r = g.round.as_ref().unwrap();
+    assert_eq!(r.status, RoundStatus::Done);
+    assert_eq!(r.ready_deadline, Some(NOW + 60_000));
+    let mut req = g.ready_required();
+    req.sort();
+    let mut want = vec![a.clone(), b.clone()];
+    want.sort();
+    assert_eq!(req, want, "only the humans are waited for, not the sims");
+    let v = g.ready_view(&|_| true).unwrap();
+    assert_eq!(v.remaining_ms, 60_000);
+    assert_eq!(v.waiting.len(), 2);
+}
+
+#[test]
+fn everyone_ready_moves_on_and_rotates_seats() {
+    let (mut g, _, a, b) = ready_game();
+    let online = |_: &str| true;
+    g.set_ready(&a, true).unwrap();
+    assert_eq!(g.ready_outcome(&online), None, "still waiting for Ben");
+    g.set_ready(&b, true).unwrap();
+    assert_eq!(g.ready_outcome(&online), Some(ReadyAdvance::AllReady));
+    g.advance_after_ready(ReadyAdvance::AllReady).unwrap();
+    let r = g.round.as_ref().unwrap();
+    assert_eq!(r.index, 1);
+    assert_eq!(r.ready_deadline, None);
+    assert_eq!(g.player(&a).unwrap().role, Some(Role::Application), "seats rotated");
+    assert!(g.archive.last().unwrap().log.iter().any(|l| l.text.contains("Everyone's ready")));
+}
+
+#[test]
+fn a_minute_of_inactivity_moves_on_and_each_click_restarts_it() {
+    let (g0, clock, a, _b) = ready_game();
+    let mut g = g0;
+    let online = |_: &str| true;
+    clock.store(NOW + 50_000, Ordering::Relaxed);
+    assert_eq!(g.ready_outcome(&online), None);
+    // a click 50s in restarts the minute
+    g.set_ready(&a, true).unwrap();
+    assert_eq!(g.round.as_ref().unwrap().ready_deadline, Some(NOW + 110_000));
+    clock.store(NOW + 70_000, Ordering::Relaxed);
+    assert_eq!(g.ready_outcome(&online), None, "the click bought another minute");
+    // changing your mind is activity too
+    g.set_ready(&a, false).unwrap();
+    assert_eq!(g.round.as_ref().unwrap().ready_deadline, Some(NOW + 130_000));
+    clock.store(NOW + 130_000, Ordering::Relaxed);
+    assert_eq!(g.ready_outcome(&online), Some(ReadyAdvance::Idle));
+    g.advance_after_ready(ReadyAdvance::Idle).unwrap();
+    assert_eq!(g.round.as_ref().unwrap().index, 1);
+    assert!(g.archive.last().unwrap().log.iter().any(|l| l.text.contains("No one moved for 60 seconds")));
+}
+
+#[test]
+fn disconnected_humans_are_not_waited_for_and_an_empty_table_pauses() {
+    let (mut g, clock, a, b) = ready_game();
+    // Ben has left: Ann alone readying is enough
+    let only_ann = |id: &str| id == a;
+    g.set_ready(&a, true).unwrap();
+    assert_eq!(g.ready_outcome(&only_ann), Some(ReadyAdvance::AllReady));
+    let v = g.ready_view(&only_ann).unwrap();
+    assert_eq!(v.away, vec![b.clone()]);
+    // nobody connected: never moves on, even long after the deadline
+    clock.store(NOW + 10 * 60_000, Ordering::Relaxed);
+    assert_eq!(g.ready_outcome(&|_| false), None);
+}
+
+#[test]
+fn only_players_at_the_table_can_ready_and_only_between_rounds() {
+    let (mut g, _, _a, _b) = ready_game();
+    let sim = g.players.iter().find(|p| p.bot).unwrap().id.clone();
+    assert!(g.set_ready(&sim, true).is_err());
+    let watcher = g.add_player("Wat", None, true).id;
+    assert!(g.set_ready(&watcher, true).is_err());
+    assert!(g.set_ready("ghost", true).is_err());
+    // mid-round there is nothing to ready for
+    let host = g.host_id.clone().unwrap();
+    g.host_action(&host, HostAction::Replay, None).unwrap();
+    let a = g.ready_required()[0].clone();
+    assert!(g.set_ready(&a, true).is_err());
+}
+
+#[test]
+fn no_ready_check_after_the_last_round() {
+    let (mut g, _, a, _) = ready_game();
+    let last = g.scenarios.len() as u32 - 1;
+    g.host_action(&a, HostAction::Goto, Some(last)).unwrap();
+    solve(&mut g);
+    assert_eq!(g.round.as_ref().unwrap().ready_deadline, None);
+    assert!(g.ready_view(&|_| true).is_none());
+}
+
+#[test]
+fn ready_message_parses_strictly() {
+    assert_eq!(parse_client_message(r#"{"t":"ready","ready":true}"#), Some(ClientMessage::Ready { ready: true }));
+    assert!(parse_client_message(r#"{"t":"ready"}"#).is_none());
+    assert!(parse_client_message(r#"{"t":"ready","ready":"yes"}"#).is_none());
+    assert!(parse_client_message(r#"{"t":"ready","ready":true,"who":"x"}"#).is_none());
+}

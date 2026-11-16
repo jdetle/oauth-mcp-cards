@@ -18,6 +18,7 @@ import { wsUrl } from "./api.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
+import { ReadyBar } from "./ReadyBar.tsx";
 import { KeysContext, Seal } from "./Seal.tsx";
 import { CallPair, rememberRoom, Timeline } from "./Timeline.tsx";
 import { TokenSlip } from "./Slip.tsx";
@@ -212,6 +213,8 @@ function Game(props: {
           {r?.status === "identify" && myRoundRole ? <Identify you={you} choices={r.flowChoices} send={send} /> : null}
           {r?.status === "done" && r.result ? <Result state={state} you={you} send={send} /> : null}
 
+          {r?.status === "done" ? <ReadyBar state={state} you={you} send={send} /> : null}
+
           {myRoundRole && r && r.status !== "done" ? (
             <section className={`hand-panel r-${myRoundRole}${handOpen ? "" : " collapsed"}`} aria-label="Your hand">
               <div className="hand-head">
@@ -304,7 +307,7 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
     <section className="hostbar" aria-label="Host controls">
       <span className="hostbar-label">Host</span>
       {!state.started ? <button className="primary" onClick={() => send({ t: "start" })}>Start game</button> : null}
-      {r?.status === "done" ? <button className="primary" onClick={() => send({ t: "host", action: "next" })} disabled={r.index + 1 >= state.rounds.length}>Next round</button> : null}
+      {r?.status === "done" ? <button onClick={() => send({ t: "host", action: "next" })} disabled={r.index + 1 >= state.rounds.length}>Skip wait</button> : null}
       {r ? <button onClick={() => send({ t: "host", action: "replay" })}>Replay</button> : null}
       {r?.status === "identify" ? <button onClick={() => send({ t: "host", action: "forceReveal" })}>Start play now</button> : null}
       {state.players.some((p) => p.bot) && (!r || r.status === "done") ? <button onClick={() => send({ t: "host", action: "removeBots" })}>Remove sims</button> : null}
@@ -372,10 +375,10 @@ function Result({ state, you, send }: { state: PublicState; you: PrivateView; se
       <div className="small"><b>Points</b><ul>{res.awards.length ? res.awards.map((a, i) => <li key={i}>+{a.points} {a.name}: {a.why}</li>) : <li>None this round.</li>}</ul></div>
       {you.isHost ? (
         <div className="row">
-          <button className="primary" onClick={() => send({ t: "host", action: "next" })} disabled={state.round!.index + 1 >= state.rounds.length}>Next round (seats rotate)</button>
+          <button onClick={() => send({ t: "host", action: "next" })} disabled={state.round!.index + 1 >= state.rounds.length}>Skip the wait: next round now</button>
           <button onClick={() => send({ t: "host", action: "replay" })}>Replay</button>
         </div>
-      ) : <p className="muted small" style={{ margin: 0 }}>Waiting for the host to continue. Seats rotate each round.</p>}
+      ) : <p className="muted small" style={{ margin: 0 }}>{state.round!.index + 1 >= state.rounds.length ? "That was the last round." : "Seats rotate each round."}</p>}
     </section>
   );
 }

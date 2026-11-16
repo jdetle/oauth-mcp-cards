@@ -80,6 +80,10 @@ pub struct Round {
     pub tell_pressed: Vec<String>,
     pub bonuses: Vec<(String, String)>,
     pub result: Option<RoundResult>,
+    /// after the round: humans who have said they're ready for the next one
+    pub ready: Vec<String>,
+    /// after the round: when it advances on its own (reset by any ready / not-ready click)
+    pub ready_deadline: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -100,8 +104,16 @@ pub struct Game {
     /// logs of earlier rounds, oldest first (Arc: cloning a Game stays cheap)
     pub archive: Vec<Arc<ArchivedRound>>,
     pub keys: Keys,
+    /// how long the table can sit idle after a round before it moves on by itself
+    pub ready_timeout_ms: i64,
     now_fn: Arc<dyn Fn() -> i64 + Send + Sync>,
     id_fn: Arc<dyn Fn() -> String + Send + Sync>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadyAdvance {
+    AllReady,
+    Idle,
 }
 
 pub fn now_ms() -> i64 {
@@ -228,6 +240,7 @@ impl Game {
             started: false,
             round: None,
             archive: vec![],
+            ready_timeout_ms: 60_000,
             keys: Keys { app: new_key_pair(), gateway: new_key_pair(), sigv4_secret: random_hex(20) },
             now_fn: Arc::new(now_ms),
             id_fn: Arc::new(random_id),
@@ -567,6 +580,8 @@ impl Game {
             tell_pressed: vec![],
             bonuses: vec![],
             result: None,
+            ready: vec![],
+            ready_deadline: None,
         };
         let title = if s.phase == Phase::Assessment { String::new() } else { format!(": {}", s.title) };
         Self::log(&mut r, None, &format!("Round {}{title}. {}", index + 1, s.text), Verdict::Info, None, None);
@@ -589,6 +604,91 @@ impl Game {
         }
         self.round = Some(r);
         Ok(())
+    }
+
+    // ---- ready check between rounds --------------------------------------------------------
+
+    /// Humans who were at the table for this round: the ones the ready check waits for.
+    pub fn ready_required(&self) -> Vec<String> {
+        let Some(r) = &self.round else { return vec![] };
+        ROLES
+            .into_iter()
+            .filter_map(|role| r.seats.get(role))
+            .filter(|id| self.player(id).map(|p| !p.bot).unwrap_or(false))
+            .cloned()
+            .collect()
+    }
+
+    /// "I'm ready" / "not yet". Any click counts as activity and restarts the idle timer.
+    pub fn set_ready(&mut self, player_id: &str, ready: bool) -> Result<(), GameError> {
+        if !self.ready_required().iter().any(|id| id == player_id) {
+            return err("Only players at the table can ready up.");
+        }
+        let name = self.player(player_id).map(|p| p.name.clone()).unwrap_or_default();
+        let now = self.now();
+        let timeout = self.ready_timeout_ms;
+        let r = self.round.as_mut().filter(|r| r.ready_deadline.is_some()).ok_or_else(|| GameError("Nothing to get ready for.".into()))?;
+        let was = r.ready.iter().any(|id| id == player_id);
+        if ready && !was {
+            r.ready.push(player_id.to_string());
+        } else if !ready && was {
+            r.ready.retain(|id| id != player_id);
+        } else {
+            return Ok(());
+        }
+        r.ready_deadline = Some(now + timeout);
+        Self::log(r, None, &format!("{name} {}", if ready { "is ready for the next round." } else { "isn't ready yet." }), Verdict::Info, None, None);
+        Ok(())
+    }
+
+    /// Should the table move on now? `online` says which players have a live connection.
+    /// Nobody is waited for who isn't connected, and with no humans online it pauses.
+    pub fn ready_outcome(&self, online: &dyn Fn(&str) -> bool) -> Option<ReadyAdvance> {
+        let r = self.round.as_ref()?;
+        let deadline = r.ready_deadline?;
+        let here: Vec<String> = self.ready_required().into_iter().filter(|id| online(id)).collect();
+        if here.is_empty() {
+            return None;
+        }
+        if here.iter().all(|id| r.ready.contains(id)) {
+            return Some(ReadyAdvance::AllReady);
+        }
+        (self.now() >= deadline).then_some(ReadyAdvance::Idle)
+    }
+
+    /// Move to the next round (seats rotate), as the host's Next would.
+    pub fn advance_after_ready(&mut self, why: ReadyAdvance) -> Result<(), GameError> {
+        let (index, timeout) = (self.round.as_ref().map(|r| r.index).ok_or_else(|| GameError("No round.".into()))?, self.ready_timeout_ms);
+        if let Some(r) = self.round.as_mut() {
+            let msg = match why {
+                ReadyAdvance::AllReady => "Everyone's ready. On to the next round.".to_string(),
+                ReadyAdvance::Idle => format!("No one moved for {} seconds. On to the next round.", timeout / 1000),
+            };
+            Self::log(r, None, &msg, Verdict::Info, None, None);
+            r.ready_deadline = None;
+        }
+        self.rotate_seats();
+        let res = self.start_round(index + 1);
+        if res.is_err() {
+            // e.g. someone left their seat: stay put and let the host sort it out
+            if let Some(r) = self.round.as_mut() {
+                Self::log(r, None, "Couldn't start the next round: a seat is empty.", Verdict::Info, None, None);
+            }
+        }
+        res
+    }
+
+    pub fn ready_view(&self, online: &dyn Fn(&str) -> bool) -> Option<ReadyCheck> {
+        let r = self.round.as_ref()?;
+        let deadline = r.ready_deadline?;
+        let required = self.ready_required();
+        Some(ReadyCheck {
+            ready: r.ready.clone(),
+            waiting: required.iter().filter(|id| !r.ready.contains(id) && online(id)).cloned().collect(),
+            away: required.iter().filter(|id| !online(id)).cloned().collect(),
+            remaining_ms: (deadline - self.now()).max(0),
+            timeout_ms: self.ready_timeout_ms,
+        })
     }
 
     // ---- assessment extras -------------------------------------------------------------------
@@ -1310,6 +1410,9 @@ impl Game {
             Some(b) => (format!("Chain broken at {}.", b.role.name()), Verdict::Incorrect),
         };
         Self::log(&mut r, None, &line.0, line.1, None, None);
+        if self.started && r.index + 1 < self.scenarios.len() {
+            r.ready_deadline = Some(self.now() + self.ready_timeout_ms);
+        }
         self.round = Some(r);
     }
 
@@ -1352,6 +1455,7 @@ impl Game {
                 result: r.result.clone(),
                 flow_choices: if s.phase == Phase::Assessment { FLOWS.to_vec() } else { vec![] },
                 tell_enabled: s.phase != Phase::Warmup && r.status != RoundStatus::Done,
+                ready_check: self.ready_view(connected),
             }
         });
         PublicState {

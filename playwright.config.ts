@@ -38,6 +38,6 @@ export default defineConfig({
         cwd: "server",
         url: `http://localhost:${PORT}/api/health`,
         reuseExistingServer: false,
-        env: { PORT: String(PORT), STATIC_DIR: "../out", SCENARIOS_DIR: "../scenarios", INTERNAL_TOKEN: TOKEN, SIM_SKILL: "1", SIM_DELAY_MS: "150", ADMIN_PASSWORD_HASH: adminHash, BASE_PATH },
+        env: { PORT: String(PORT), STATIC_DIR: "../out", SCENARIOS_DIR: "../scenarios", INTERNAL_TOKEN: TOKEN, SIM_SKILL: "1", SIM_DELAY_MS: "150", READY_TIMEOUT_MS: "20000", ADMIN_PASSWORD_HASH: adminHash, BASE_PATH },
       },
 });

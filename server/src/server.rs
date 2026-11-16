@@ -84,6 +84,8 @@ pub struct Room {
     msg_limiter: HashMap<u64, VecDeque<Instant>>,
     /// a sim move is already scheduled for this room
     sim_pending: bool,
+    /// a wake-up is scheduled for the ready check's idle deadline
+    ready_timer: bool,
 }
 
 impl Room {
@@ -385,11 +387,14 @@ async fn create_room(
     }
     let name = room_name(&|n| rooms.contains_key(n));
     let mut game = Game::new(&name, state.scenarios.clone());
+    if let Some(ms) = std::env::var("READY_TIMEOUT_MS").ok().and_then(|v| v.parse::<i64>().ok()).filter(|ms| *ms >= 1000) {
+        game.ready_timeout_ms = ms;
+    }
     let (pref, spectate) = seat_choice(&body.role);
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
         name.clone(),
-        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), created: Instant::now(), closed: false, last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false })),
+        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), created: Instant::now(), closed: false, last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false, ready_timer: false })),
     );
     drop(rooms);
     joined(&state, &name, &player)
@@ -491,6 +496,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
         r.last_active = Instant::now();
         r.broadcast();
     }
+    drive_ready(room.clone());
     let writer = tokio::spawn(async move {
         while let Some(m) = rx.recv().await {
             if sink.send(m).await.is_err() {
@@ -533,6 +539,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
                 r.broadcast();
                 drop(r);
                 drive_sims(room.clone());
+                drive_ready(room.clone());
             }
             Err(e) => send_one(&tx, ServerMessage::Error { message: &e.0 }),
         }
@@ -543,7 +550,39 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
         r.msg_limiter.remove(&conn_id);
         r.broadcast();
     }
+    if !room.lock().unwrap().closed {
+        drive_ready(room.clone());
+    }
     writer.abort();
+}
+
+/// Between rounds: move on as soon as every connected human is ready, or when the idle
+/// deadline passes. Called after anything that could change the answer (a click, a round
+/// ending, someone connecting or leaving); arms one timer per room for the deadline.
+pub fn drive_ready(room: Arc<Mutex<Room>>) {
+    let wait = {
+        let mut r = room.lock().unwrap();
+        let online: std::collections::HashSet<String> = r.conns.values().map(|c| c.player_id.clone()).collect();
+        if let Some(why) = r.game.ready_outcome(&|id| online.contains(id)) {
+            let _ = r.game.advance_after_ready(why);
+            r.last_active = Instant::now();
+            r.broadcast();
+            drop(r);
+            drive_sims(room.clone());
+            return;
+        }
+        let Some(deadline) = r.game.round.as_ref().and_then(|x| x.ready_deadline) else { return };
+        if r.ready_timer {
+            return;
+        }
+        r.ready_timer = true;
+        Duration::from_millis((deadline - crate::engine::now_ms()).max(0) as u64 + 50)
+    };
+    tokio::spawn(async move {
+        tokio::time::sleep(wait).await;
+        room.lock().unwrap().ready_timer = false;
+        drive_ready(room);
+    });
 }
 
 /// If a sim is due to act, schedule its move after a human-paced delay
@@ -580,7 +619,8 @@ pub fn drive_sims(room: Arc<Mutex<Room>>) {
                 }
             }
         }
-        drive_sims(room);
+        drive_sims(room.clone());
+        drive_ready(room);
     });
 }
 
@@ -593,6 +633,7 @@ pub fn parse_client_message(raw: &str) -> Option<ClientMessage> {
     let obj = v.as_object()?;
     let allowed: &[&str] = match obj.get("t")?.as_str()? {
         "ping" | "stand" | "start" | "tell" => &["t"],
+        "ready" => &["t", "ready"],
         "sit" => &["t", "role"],
         "play" => &["t", "cardId"],
         "identify" => &["t", "flow"],
@@ -625,6 +666,7 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
         ClientMessage::Identify { flow } => g.identify(player_id, flow),
         ClientMessage::Tell => g.tell(player_id),
         ClientMessage::Host { action, round } => g.host_action(player_id, action, round),
+        ClientMessage::Ready { ready } => g.set_ready(player_id, ready),
         ClientMessage::Ping => Ok(()),
     }
 }

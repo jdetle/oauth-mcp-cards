@@ -11,6 +11,7 @@
 //!   TURNSTILE_SITE_KEY, TURNSTILE_SECRET  Cloudflare Turnstile bot check on create/join/admin login
 //!   BASE_PATH       serve the whole app under this prefix, e.g. /mcp-oauth (default: site root)
 //!   EDGE_PUBLIC_KEY Ed25519 public key (hex) of the edge Worker that signs visitor addresses
+//!   READY_TIMEOUT_MS  idle time after a round before the table moves on by itself (default 60000)
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
 //!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~5.6-6.3s, so each card can be read)
 mod admin;

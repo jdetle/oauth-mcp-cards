@@ -613,6 +613,19 @@ impl Seats {
     }
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadyCheck {
+    pub ready: Vec<String>,
+    /// connected humans who haven't readied
+    pub waiting: Vec<String>,
+    /// humans at the table who aren't connected (not waited for)
+    pub away: Vec<String>,
+    /// time left before the table moves on by itself, as of this message
+    pub remaining_ms: i64,
+    pub timeout_ms: i64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicRound {
@@ -632,6 +645,8 @@ pub struct PublicRound {
     pub result: Option<RoundResult>,
     pub flow_choices: Vec<Flow>,
     pub tell_enabled: bool,
+    /// between rounds: who's ready, who we're waiting on, and the idle countdown
+    pub ready_check: Option<ReadyCheck>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -694,6 +709,7 @@ pub enum ClientMessage {
     Identify { flow: Flow },
     Tell,
     Host { action: HostAction, round: Option<u32> },
+    Ready { ready: bool },
     Ping,
 }
 

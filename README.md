@@ -43,6 +43,10 @@ Colour means the *kind* of call, never right or wrong: red stops (Reject), green
 
 Each card play stays on screen for about five seconds (it holds above the receiver with a countdown bar) so the table can read it. Sims wait that out before moving.
 
+## Ready check between rounds
+
+When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If a minute passes with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.
+
 ## Timeline
 
 The side panel keeps a timestamped, chat-style record of every move in every round, with a strip of ticks along the top (one per move, coloured by kind of call, taller with a yellow cap for a mismatch). It is the server's record, so it survives reloads, and only people in the room can fetch it. On the lobby, `/learn/` and `/reference/` pages a small dock shows the live timeline of the room you're in.

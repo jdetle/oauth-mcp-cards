@@ -255,6 +255,17 @@ export interface RoundResult {
   traps: string[];
 }
 
+export interface ReadyCheck {
+  ready: string[];
+  /** connected humans who haven't readied */
+  waiting: string[];
+  /** humans at the table who aren't connected (not waited for) */
+  away: string[];
+  /** time left before the table moves on by itself, as of this message */
+  remainingMs: number;
+  timeoutMs: number;
+}
+
 export interface PublicRound {
   index: number;
   phase: Phase;
@@ -275,6 +286,8 @@ export interface PublicRound {
   /** identify options for assessment rounds */
   flowChoices: Flow[];
   tellEnabled: boolean;
+  /** between rounds: who's ready, who we're waiting on, and the idle countdown */
+  readyCheck: ReadyCheck | null;
 }
 
 export interface PublicState {
@@ -310,6 +323,7 @@ export type ClientMessage =
   | { t: "identify"; flow: Flow }
   | { t: "tell" }
   | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal" | "addBots" | "removeBots"; round?: number }
+  | { t: "ready"; ready: boolean }
   | { t: "ping" };
 
 export type ServerMessage =
