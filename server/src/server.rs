@@ -68,15 +68,18 @@ impl RateLimiter {
     }
 }
 
-struct Conn {
-    player_id: String,
-    tx: mpsc::Sender<Message>,
+pub(crate) struct Conn {
+    pub(crate) player_id: String,
+    pub(crate) tx: mpsc::Sender<Message>,
 }
 
 pub struct Room {
     pub game: Game,
     password_hash: String,
-    conns: HashMap<u64, Conn>,
+    pub(crate) conns: HashMap<u64, Conn>,
+    pub(crate) created: Instant,
+    /// set when an admin deletes the room: sockets stop accepting moves
+    pub(crate) closed: bool,
     pub last_active: Instant,
     msg_limiter: HashMap<u64, VecDeque<Instant>>,
     /// a sim move is already scheduled for this room
@@ -110,7 +113,24 @@ impl Room {
     }
 }
 
+/// Settings read from the environment in main.rs.
+#[derive(Default, Clone)]
+pub struct Config {
+    pub internal_token: Option<String>,
+    pub secure_cookies: bool,
+    pub dev_origin: Option<String>,
+    /// scrypt hash (`salt:hash`) of the admin password; admin is disabled without it
+    pub admin_hash: Option<String>,
+    /// Cloudflare Turnstile: both set = bot check required on create / join / admin login
+    pub turnstile_site_key: Option<String>,
+    pub turnstile_secret: Option<String>,
+}
+
 pub struct AppState {
+    pub admin_hash: Option<String>,
+    pub admin_limiter: RateLimiter,
+    pub turnstile_site_key: Option<String>,
+    pub turnstile_secret: Option<String>,
     pub scenarios: Arc<Vec<Scenario>>,
     pub rooms: Mutex<HashMap<String, Arc<Mutex<Room>>>>,
     pub secret: [u8; 32],
@@ -123,8 +143,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(scenarios: Vec<Scenario>, internal_token: Option<String>, secure_cookies: bool, dev_origin: Option<String>) -> Arc<Self> {
+    pub fn new(scenarios: Vec<Scenario>, cfg: Config) -> Arc<Self> {
+        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret } = cfg;
+        let turnstile_on = turnstile_site_key.is_some() && turnstile_secret.is_some();
         Arc::new(AppState {
+            admin_hash,
+            admin_limiter: RateLimiter::new(5, Duration::from_secs(300)),
+            turnstile_site_key: turnstile_site_key.filter(|_| turnstile_on),
+            turnstile_secret: turnstile_secret.filter(|_| turnstile_on),
             scenarios: Arc::new(scenarios),
             rooms: Mutex::new(HashMap::new()),
             secret: random_bytes::<32>(),
@@ -137,8 +163,37 @@ impl AppState {
         })
     }
 
-    fn room(&self, name: &str) -> Option<Arc<Mutex<Room>>> {
+    pub(crate) fn room(&self, name: &str) -> Option<Arc<Mutex<Room>>> {
         self.rooms.lock().unwrap().get(name).cloned()
+    }
+
+    pub(crate) fn trusted(&self, headers: &HeaderMap) -> bool {
+        self.internal_token.as_ref().is_some_and(|t| headers.get("x-omcp-internal").and_then(|v| v.to_str().ok()) == Some(t.as_str()))
+    }
+
+    /// Cloudflare Turnstile: when configured, the browser must present a token from the widget
+    /// and Cloudflare must confirm it. Requests carrying the internal token (tests) skip it.
+    pub(crate) async fn bot_check(&self, headers: &HeaderMap, token: Option<&str>, ip: &str) -> Result<(), Response> {
+        let Some(secret) = self.turnstile_secret.clone() else { return Ok(()) };
+        if self.trusted(headers) {
+            return Ok(());
+        }
+        let Some(token) = token.filter(|t| !t.is_empty() && t.len() < 4096).map(str::to_string) else {
+            return Err(error(StatusCode::BAD_REQUEST, "Please complete the bot check first."));
+        };
+        let ip = ip.to_string();
+        let ok = tokio::task::spawn_blocking(move || {
+            ureq::post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+                .timeout(Duration::from_secs(8))
+                .send_form(&[("secret", secret.as_str()), ("response", token.as_str()), ("remoteip", ip.as_str())])
+                .ok()
+                .and_then(|r| r.into_json::<serde_json::Value>().ok())
+                .and_then(|v| v.get("success").and_then(|s| s.as_bool()))
+                .unwrap_or(false)
+        })
+        .await
+        .unwrap_or(false);
+        if ok { Ok(()) } else { Err(error(StatusCode::FORBIDDEN, "Bot check failed. Reload the page and try again.")) }
     }
 }
 
@@ -182,7 +237,7 @@ pub fn valid_room_name(n: &str) -> bool {
 
 // ---- HTTP helpers ----------------------------------------------------------------------------------
 
-fn client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
+pub(crate) fn client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
     // Behind CloudFront (TRUST_CLOUDFRONT=1) the viewer's real address is in CloudFront-Viewer-Address;
     // X-Forwarded-For can be pre-filled by the client, so it's only used when that header is absent.
     if std::env::var("TRUST_CLOUDFRONT").as_deref() == Ok("1") {
@@ -202,14 +257,14 @@ fn cookie_name(room: &str) -> String {
     format!("omcp_{}", room.replace('-', "_"))
 }
 
-fn read_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn read_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     headers.get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()).flat_map(|v| v.split(';')).find_map(|kv| {
         let (k, v) = kv.trim().split_once('=')?;
         (k == name).then(|| v.to_string())
     })
 }
 
-fn error(status: StatusCode, msg: &str) -> Response {
+pub(crate) fn error(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "error": msg }))).into_response()
 }
 
@@ -219,6 +274,7 @@ pub struct JoinBody {
     password: Option<String>,
     display_name: Option<String>,
     role: Option<String>,
+    turnstile_token: Option<String>,
 }
 
 fn seat_choice(role: &Option<String>) -> (Option<Role>, bool) {
@@ -243,6 +299,11 @@ fn joined(state: &AppState, room: &str, player: &crate::engine::Player) -> Respo
 
 // ---- handlers ----------------------------------------------------------------------------------
 
+/// What the browser needs to know before it can talk to us.
+async fn public_config(State(state): State<Arc<AppState>>) -> Response {
+    Json(json!({ "turnstileSiteKey": state.turnstile_site_key, "admin": state.admin_hash.is_some() })).into_response()
+}
+
 async fn list_rooms(State(state): State<Arc<AppState>>) -> Response {
     let rooms: Vec<(String, Arc<Mutex<Room>>)> = state.rooms.lock().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut out: Vec<(Instant, serde_json::Value)> = rooms
@@ -265,8 +326,11 @@ async fn create_room(
     body: Option<Json<JoinBody>>,
 ) -> Response {
     let Some(Json(body)) = body else { return error(StatusCode::BAD_REQUEST, "Bad request.") };
-    // load tests present the internal token to skip the per-IP limit
-    let trusted = state.internal_token.as_ref().is_some_and(|t| headers.get("x-omcp-internal").and_then(|v| v.to_str().ok()) == Some(t.as_str()));
+    // tests present the internal token to skip the per-IP limit
+    let trusted = state.trusted(&headers);
+    if let Err(r) = state.bot_check(&headers, body.turnstile_token.as_deref(), &client_ip(&headers, &addr)).await {
+        return r;
+    }
     if !trusted {
         let wait = state.create_limiter.check(&client_ip(&headers, &addr));
         if wait > 0 {
@@ -288,7 +352,7 @@ async fn create_room(
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
         name.clone(),
-        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false })),
+        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), created: Instant::now(), closed: false, last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false })),
     );
     drop(rooms);
     joined(&state, &name, &player)
@@ -312,6 +376,9 @@ async fn join_room(
     if wait > 0 {
         return error(StatusCode::TOO_MANY_REQUESTS, &format!("Too many attempts. Try again in {wait}s."));
     }
+    if let Err(r) = state.bot_check(&headers, body.turnstile_token.as_deref(), &client_ip(&headers, &addr)).await {
+        return r;
+    }
     let password = body.password.clone().unwrap_or_default();
     let hash = room.lock().unwrap().password_hash.clone();
     let ok = password.len() <= 128 && tokio::task::spawn_blocking(move || check_password(&password, &hash)).await.unwrap();
@@ -334,6 +401,25 @@ async fn join_room(
     drop(r);
     drive_sims(room.clone());
     joined(&state, &name, &player)
+}
+
+/// Logs of the rounds already played in this room, for the game-long timeline.
+/// Same audience as the table itself: only people holding this room's session cookie.
+async fn room_history(State(state): State<Arc<AppState>>, Path(name): Path<String>, headers: HeaderMap) -> Response {
+    let player = if valid_room_name(&name) {
+        read_cookie(&headers, &cookie_name(&name)).and_then(|t| verify_session(&name, &t, &state.secret))
+    } else {
+        None
+    };
+    let Some(room) = state.room(&name) else { return error(StatusCode::NOT_FOUND, "That room doesn't exist (or has closed).") };
+    let r = room.lock().unwrap();
+    if !player.is_some_and(|p| r.game.player(&p).is_some()) {
+        return error(StatusCode::UNAUTHORIZED, "Not joined.");
+    }
+    let rounds: Vec<&ArchivedRound> = r.game.archive.iter().map(|a| a.as_ref()).collect();
+    let mut res = Json(json!({ "rounds": rounds })).into_response();
+    res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    res
 }
 
 async fn ws_handler(State(state): State<Arc<AppState>>, Path(name): Path<String>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
@@ -389,6 +475,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
             }
         };
         let mut r = room.lock().unwrap();
+        if r.closed {
+            break;
+        }
         if !r.allow_message(conn_id) {
             send_one(&tx, ServerMessage::Error { message: "Slow down." });
             continue;
@@ -434,7 +523,8 @@ pub fn drive_sims(room: Arc<Mutex<Room>>) {
         // SIM_DELAY_MS overrides the pacing (tests run sims fast)
         match std::env::var("SIM_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
             Some(ms) => Duration::from_millis(ms),
-            None => Duration::from_millis(if identify { 500 + jitter } else { 1700 + jitter }),
+            // a card play is on screen for a little over 5s; a sim waits it out before moving
+            None => Duration::from_millis(if identify { 500 + jitter } else { 5600 + jitter }),
         }
     };
     tokio::spawn(async move {
@@ -518,8 +608,14 @@ pub fn spawn_reaper(state: Arc<AppState>) {
 pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
     let api = Router::new()
         .route("/api/health", get(|| async { "ok" }))
+        .route("/api/config", get(public_config))
+        .route("/api/admin/login", post(crate::admin::login))
+        .route("/api/admin/logout", post(crate::admin::logout))
+        .route("/api/admin/rooms", get(crate::admin::rooms))
+        .route("/api/admin/rooms/{name}", axum::routing::delete(crate::admin::delete_room))
         .route("/api/rooms", get(list_rooms).post(create_room))
         .route("/api/rooms/{name}/join", post(join_room))
+        .route("/api/rooms/{name}/history", get(room_history))
         .route("/ws/{name}", get(ws_handler));
     let index = static_dir.join("404.html");
     let files = ServeDir::new(static_dir).append_index_html_on_directories(true).not_found_service(ServeFile::new(index));

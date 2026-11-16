@@ -5,6 +5,14 @@ import type { ClientMessage, PrivateView, PublicState, Role, ServerMessage } fro
 
 const ROOT = `${import.meta.dir}/..`;
 export const TEST_INTERNAL_TOKEN = "test-internal-token-0123456789";
+
+/** scrypt hash for an admin password, made by the server binary itself. */
+export function adminHash(password: string): string {
+  const bin = `${ROOT}/server/target/release/oauth-mcp-server`;
+  const r = spawnSync([bin, "hash-password"], { stdin: Buffer.from(`${password}\n`) });
+  if (r.exitCode !== 0) throw new Error(`hash-password failed: ${r.stderr.toString()}`);
+  return r.stdout.toString().trim();
+}
 export const SCENARIO_COUNT = readdirSync(`${ROOT}/scenarios`).filter((f) => f.endsWith(".json")).length;
 
 export interface Joined {
@@ -111,7 +119,7 @@ export class SimPlayer {
 }
 
 /** Start the Rust server (release build) on a free port, unless API_HOST is set. */
-export async function startServer(): Promise<{ host: string; stop: () => void }> {
+export async function startServer(extraEnv: Record<string, string> = {}): Promise<{ host: string; stop: () => void }> {
   if (process.env.API_HOST) return { host: process.env.API_HOST, stop: () => {} };
   const bin = `${ROOT}/server/target/release/oauth-mcp-server`;
   if (!existsSync(bin)) {
@@ -121,7 +129,7 @@ export async function startServer(): Promise<{ host: string; stop: () => void }>
   process.env.INTERNAL_TOKEN = TEST_INTERNAL_TOKEN;
   const port = 20000 + Math.floor(Math.random() * 20000);
   const proc: Subprocess = spawn([bin], {
-    env: { ...process.env, PORT: String(port), SCENARIOS_DIR: `${ROOT}/scenarios`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN },
+    env: { ...process.env, PORT: String(port), SCENARIOS_DIR: `${ROOT}/scenarios`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN, ...extraEnv },
     stdout: "ignore",
     stderr: "ignore",
   });

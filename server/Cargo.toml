@@ -16,6 +16,7 @@ serde_json = "1.0.154"
 sha2 = "0.11.1"
 tokio = { version = "1.54.1", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["fs", "cors", "set-header"] }
+ureq = { version = "2", features = ["json"] }
 
 [[bin]]
 name = "oauth-mcp-server"

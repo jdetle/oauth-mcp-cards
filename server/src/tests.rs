@@ -469,3 +469,117 @@ fn only_public_keys_are_ever_sent() {
         }
     }
 }
+
+#[test]
+fn finished_rounds_are_archived_for_the_timeline() {
+    let mut t = new_game();
+    let host = t.ids[0].clone();
+    t.g.start(&host).unwrap();
+    solve(&mut t.g);
+    assert!(t.g.archive.is_empty());
+    t.g.host_action(&host, HostAction::Next, None).unwrap();
+    solve(&mut t.g);
+    t.g.host_action(&host, HostAction::Goto, Some(index_of(&t.g, "assess-archive"))).unwrap();
+    assert_eq!(t.g.archive.len(), 2);
+    assert_eq!(t.g.archive[0].index, 0);
+    assert_eq!(t.g.archive[0].success, Some(true));
+    assert!(t.g.archive[0].log.iter().any(|l| l.role.is_some()), "moves are kept");
+    assert!(t.g.archive[0].log.iter().all(|l| l.at > 0), "entries are timestamped");
+    // an abandoned assessment round is archived without leaking its real title
+    solve(&mut t.g);
+    t.g.host_action(&host, HostAction::Replay, None).unwrap();
+    let last = t.g.archive.last().unwrap();
+    assert!(last.title.starts_with("Assessment "));
+    assert!(!serde_json::to_string(last.as_ref()).unwrap().contains("Archive"));
+}
+
+// ---- expected vs played ---------------------------------------------------------------------
+
+fn last_call(g: &Game) -> Call {
+    g.round.as_ref().unwrap().log.iter().rev().find_map(|l| l.call.clone()).expect("a judged move")
+}
+
+#[test]
+fn a_correct_reject_is_stop_equals_stop() {
+    let mut t = new_game();
+    let i = index_of(&t.g, "learning-obo");
+    t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i)).unwrap();
+    play_label(&mut t.g, "with the user's token slip");
+    let c = last_call(&t.g);
+    assert!(c.matched && c.played.tone == Tone::Send && c.expected == c.played);
+    // the Application forwards the raw token: expected the exchange, played the forward
+    play_label(&mut t.g, "Forward the token");
+    let c = last_call(&t.g);
+    assert!(!c.matched);
+    assert_eq!((c.expected.label.as_str(), c.played.label.as_str()), ("Exchange (OBO)", "Forward the token"));
+    // the MCP Server rejects it: a red action that is exactly what was expected
+    play_label(&mut t.g, "Reject");
+    let c = last_call(&t.g);
+    assert!(c.matched);
+    assert_eq!(c.expected, Chip { label: "Reject".into(), tone: Tone::Stop });
+    assert_eq!(c.played, Chip { label: "Reject".into(), tone: Tone::Stop });
+}
+
+#[test]
+fn accepting_something_invalid_is_go_versus_stop() {
+    let mut t = new_game();
+    let i = index_of(&t.g, "learning-obo");
+    t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i)).unwrap();
+    play_label(&mut t.g, "with the user's token slip");
+    play_label(&mut t.g, "Forward the token");
+    play_label(&mut t.g, "Accept");
+    let c = last_call(&t.g);
+    assert!(!c.matched);
+    assert_eq!((c.expected.tone, c.played.tone), (Tone::Stop, Tone::Go));
+}
+
+#[test]
+fn right_kind_of_call_with_a_defect_names_the_defect() {
+    let mut t = new_game();
+    let i = index_of(&t.g, "learning-obo");
+    t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i)).unwrap();
+    play_label(&mut t.g, "with the user's token slip");
+    play_label(&mut t.g, "scope calendar.*)");
+    let c = last_call(&t.g);
+    assert!(!c.matched);
+    assert_eq!(c.expected.label, "Exchange (OBO)");
+    assert_eq!(c.played.label, "Exchange (OBO) · scope beyond consent");
+}
+
+#[test]
+fn every_correct_move_matches_and_every_wrong_move_does_not() {
+    // across all scenarios with perfect play: matched everywhere
+    for i in 0..new_game().g.scenarios.len() {
+        let mut t = new_game();
+        t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i as u32)).unwrap();
+        solve(&mut t.g);
+        let r = t.g.round.as_ref().unwrap();
+        for l in r.log.iter().filter(|l| l.call.is_some()) {
+            let c = l.call.as_ref().unwrap();
+            assert_eq!(c.matched, l.verdict != Verdict::Incorrect, "{}: {:?}", t.g.scenarios[i].id, c);
+            assert!(c.matched, "{}: perfect play should always match: {:?}", t.g.scenarios[i].id, c);
+        }
+    }
+}
+
+#[test]
+fn a_perfect_sim_rejects_what_a_human_got_wrong() {
+    for _ in 0..20 {
+        let mut t = new_game();
+        let host = t.ids[0].clone();
+        t.g.players.retain(|p| p.id == host);
+        t.g.host_action(&host, HostAction::AddBots, None).unwrap();
+        t.g.host_action(&host, HostAction::Goto, Some(index_of(&t.g, "learning-obo"))).unwrap();
+        // the human Client skips the Application; the MCP Server sim must reject, never accept
+        play_label(&mut t.g, "Skip the Application");
+        for _ in 0..6 {
+            let Some(sim) = t.g.next_sim() else { break };
+            let m = t.g.sim_choice(&sim, 1.0).unwrap();
+            apply(&mut t.g, &sim, m).unwrap();
+        }
+        let r = t.g.round.as_ref().unwrap();
+        assert_eq!(r.status, RoundStatus::Done);
+        let mcp = r.moves.iter().rev().find(|m| m.role == Role::Mcp).unwrap();
+        assert_eq!(mcp.correct, Some(true), "sim played: {}", mcp.label);
+    }
+}

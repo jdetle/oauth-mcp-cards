@@ -21,7 +21,7 @@ test("lobby → create room → fill with sims → win an OBO round @smoke", asy
   await expect(page.locator(".score tbody tr")).toHaveCount(4);
   // every hop is on the chain, and the cards have cleaned up after themselves
   await expect(page.locator(".chain li")).toHaveCount(3);
-  await expect(page.locator(".fx-card")).toHaveCount(0, { timeout: 8_000 });
+  await expect(page.locator(".fx-card")).toHaveCount(0, { timeout: 15_000 });
 });
 
 test("a wrong call breaks the chain and marks where", async ({ page }) => {
@@ -174,4 +174,27 @@ test("phone: board, hand drawer and no sideways scroll @mobile", async ({ page }
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
   }
+});
+
+test("a card play stays on screen for at least five seconds, showing expected vs played", async ({ page }) => {
+  await createRoom(page, "Slow");
+  await fillWithSims(page);
+  await jumpTo(page, "Learning: On-Behalf-Of");
+  await playCard(page, "Skip the Application"); // a mismatch
+  const card = page.locator(".fx-card").first();
+  await expect(card).toBeVisible();
+  const shown = Date.now();
+  await expect(card.locator(".fx-call").first()).toContainText("Send to the Application");
+  await expect(card.locator(".fx-call").first()).toContainText("≠");
+  await expect(card).toBeHidden({ timeout: 12_000 });
+  expect(Date.now() - shown).toBeGreaterThanOrEqual(4_800);
+
+  // the same comparison is in the timeline and the result panel; a correct Reject is red = red
+  const mcpReject = page.locator(".calls li:has(.calls-who.r-mcp)");
+  await expect(mcpReject.locator(".call.match")).toBeVisible();
+  await expect(mcpReject.locator(".chip.t-stop")).toHaveCount(2);
+  await expect(mcpReject).toContainText("match");
+  const mine = page.locator(".calls li:has(.calls-who.r-client)");
+  await expect(mine.locator(".call.miss")).toContainText("mismatch");
+  await expect(page.locator(".tl-msg.miss .call")).toContainText("Send to the Application");
 });

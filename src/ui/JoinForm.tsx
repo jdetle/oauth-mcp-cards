@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ROLES, ROLE_NAMES } from "../game/types.ts";
 import { createRoom, joinRoom, rememberName, type SeatChoice } from "./api.ts";
+import { Turnstile } from "./Turnstile.tsx";
 
 export function SeatSelect({ value, onChange, id }: { value: SeatChoice; onChange: (v: SeatChoice) => void; id: string }) {
   return (
@@ -25,6 +26,9 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
   const [seat, setSeat] = useState<SeatChoice>("auto");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [botCheck, setBotCheck] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
   const idp = room ? `join-${room}` : "create";
 
   useEffect(() => setName(rememberName()), []);
@@ -36,9 +40,12 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
     if (password.length < 4) return setError("Password must be at least 4 characters.");
     setBusy(true);
     rememberName(name.trim());
-    const res = room ? await joinRoom(room, password, name.trim(), seat) : await createRoom(password, name.trim(), seat);
+    const res = room ? await joinRoom(room, password, name.trim(), seat, token) : await createRoom(password, name.trim(), seat, token);
     setBusy(false);
-    if (!res.ok) return setError(String(res.data.error ?? "Couldn't join."));
+    if (!res.ok) {
+      setResetKey((k) => k + 1); // bot-check tokens are single-use
+      return setError(String(res.data.error ?? "Couldn't join."));
+    }
     onJoined(String(res.data.room));
   }
 
@@ -55,9 +62,10 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
         </label>
         <SeatSelect id={`${idp}-seat`} value={seat} onChange={setSeat} />
       </div>
+      <Turnstile onToken={setToken} onRequired={setBotCheck} resetKey={resetKey} />
       {error ? <div className="error" role="alert">{error}</div> : null}
       <div className="row">
-        <button className="primary" type="submit" disabled={busy}>{busy ? "…" : room ? "Join room" : "Create room"}</button>
+        <button className="primary" type="submit" disabled={busy || (botCheck && !token)}>{busy ? "…" : room ? "Join room" : "Create room"}</button>
         {!room ? <span className="muted small">You'll get a random room name. Share it and the password with your table.</span> : null}
       </div>
     </form>

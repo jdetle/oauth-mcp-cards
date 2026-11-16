@@ -10,7 +10,7 @@
 // The card face is sliced into a grid: each cell holds a full copy of the face, offset,
 // so the bits are pieces of the real card rather than confetti.
 import { useEffect, useRef, useState } from "react";
-import { ROLE_NAMES, type PublicRound, type Role, type Verdict } from "../game/types.ts";
+import { ROLE_NAMES, type Call, type PublicRound, type Role, type Tone, type Verdict } from "../game/types.ts";
 
 interface Fx {
   key: number;
@@ -18,13 +18,22 @@ interface Fx {
   to: Role | null;
   text: string;
   verdict: Verdict;
+  call?: Call;
 }
 
 const ROLE_COLOR: Record<Role, string> = { client: "#29f0ff", application: "#ff3dcb", idp: "#ffa12b", mcp: "#3dffa2" };
-const OUTCOME: Record<Verdict, string> = { correct: "#3dffa2", incorrect: "#ff2d55", neutral: "#9b7bff", info: "#29f0ff" };
+// colour follows the kind of action (stop = red, go = green), never right/wrong; a mismatch is yellow
+const TONE: Record<Tone, string> = { go: "#3dffa2", stop: "#ff2d55", send: "#29f0ff" };
+const MISS = "#ffd23f";
+const outcomeColor = (fx: { verdict: Verdict; call?: Call }) =>
+  fx.call ? (fx.call.matched ? TONE[fx.call.played.tone] : MISS) : fx.verdict === "incorrect" ? MISS : fx.verdict === "info" ? "#29f0ff" : "#9b7bff";
+const missed = (fx: { verdict: Verdict; call?: Call }) => (fx.call ? !fx.call.matched : fx.verdict === "incorrect");
 
-const CARD_W = 200;
-const CARD_H = 124;
+const CARD_W = 264;
+const CARD_H = 168;
+/** How long a landed card stays put so the table can read it. Whole play ≥ 5 seconds. */
+const HOLD_MS = 3400;
+const HOLD_CHECK_MS = 3900; // free checks don't travel, so they hold a little longer
 const COLS = 10;
 const ROWS = 6;
 const CW = CARD_W / COLS;
@@ -68,7 +77,7 @@ export function CardFX({ round }: { round: PublicRound | null }) {
     const to = round.inFlight?.to ?? null;
     setFx((cur) => [
       ...cur.slice(-2),
-      ...fresh.map((l, i) => ({ key: l.seq * 10 + i, role: l.role!, to: l.verdict === "info" ? null : to, text: l.text, verdict: l.verdict })),
+      ...fresh.map((l, i) => ({ key: l.seq * 10 + i, role: l.role!, to: l.verdict === "info" ? null : to, text: l.text, verdict: l.verdict, call: l.call })),
     ]);
   }, [round]);
 
@@ -85,8 +94,16 @@ function Face({ fx }: { fx: Fx }) {
   return (
     <div className="fx-face">
       <span className="fx-role">{ROLE_NAMES[fx.role]}</span>
-      <span className="fx-text">{fx.text.length > 84 ? `${fx.text.slice(0, 82)}…` : fx.text}</span>
-      <span className="fx-mark">{fx.verdict === "correct" ? "✓" : fx.verdict === "incorrect" ? "✗" : fx.verdict === "info" ? "◎" : "◆"}</span>
+      <span className="fx-text">{fx.text.length > 120 ? `${fx.text.slice(0, 118)}…` : fx.text}</span>
+      {fx.call ? (
+        <span className="fx-call">
+          <i className={`chip t-${fx.call.expected.tone}`}>{fx.call.expected.label.split(" · ")[0]}</i>
+          <b>{fx.call.matched ? "=" : "≠"}</b>
+          <i className={`chip t-${fx.call.played.tone}`}>{fx.call.played.label.split(" · ")[0]}</i>
+        </span>
+      ) : (
+        <span className="fx-mark">{fx.verdict === "info" ? "◎" : "◆"}</span>
+      )}
     </div>
   );
 }
@@ -107,7 +124,7 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
     const cells = Array.from(grid.children) as HTMLElement[];
     const from = centerOf(`.terminal.r-${fx.role}`) ?? { x: innerWidth / 2, y: innerHeight / 2 };
     const target = (fx.to && fx.to !== fx.role ? centerOf(`.terminal.r-${fx.to}`) : null) ?? centerOf(".core") ?? from;
-    const lift = -70; // hover just above the terminal
+    const lift = -(CARD_H / 2 + 46); // hover just above the terminal, leaving it visible
     const dx = target.x - from.x;
     const lean = Math.max(-18, Math.min(18, dx / 25));
     const at = (x: number, y: number, extra = "") => `translate3d(${x - CARD_W / 2}px, ${y - CARD_H / 2}px, 0) ${extra}`;
@@ -129,7 +146,10 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
 
     // 2. glide to the receiver
     const travel = fx.verdict === "info" ? 0 : 1;
-    const end = { x: from.x + dx * travel, y: (travel ? target.y : from.y) + (travel ? 0 : lift) };
+    // land above the receiver (not on top of it), kept inside the window
+    const clampX = (x: number) => Math.max(CARD_W / 2 + 8, Math.min(innerWidth - CARD_W / 2 - 8, x));
+    const clampY = (y: number) => Math.max(CARD_H / 2 + 8, Math.min(innerHeight - CARD_H / 2 - 8, y));
+    const end = { x: clampX(from.x + dx * travel), y: clampY((travel ? target.y : from.y) + lift) };
     const fly = m.animate(
       [
         { transform: at(from.x, from.y + lift, "perspective(800px) rotateX(18deg)") },
@@ -141,17 +161,27 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
     );
     anims.push(fly);
 
-    // 3. resolve
+    // 3. hold: stay readable, with a countdown bar, then resolve
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
     fly.onfinish = () => {
+      const hold = fx.verdict === "info" ? HOLD_CHECK_MS : HOLD_MS;
+      const bar = m.querySelector(".fx-timer") as HTMLElement | null;
+      if (bar) anims.push(bar.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { duration: hold, easing: "linear", fill: "forwards" }));
+      holdTimer = setTimeout(resolve, hold);
+    };
+
+    // 4. resolve
+    const resolve = () => {
+      m.querySelector(".fx-timer")?.remove();
       let last: Animation | null = null;
-      if (fx.verdict === "incorrect") {
+      if (missed(fx)) {
         grid.classList.add("bad");
         anims.push(
           grid.animate(
             [
               { transform: "translate(0,0)", filter: "none" },
-              { transform: "translate(-4px,1px)", filter: "drop-shadow(3px 0 #ff2d55) drop-shadow(-3px 0 #29f0ff)" },
-              { transform: "translate(3px,-1px)", filter: "drop-shadow(-3px 0 #ff2d55) drop-shadow(3px 0 #29f0ff)" },
+              { transform: "translate(-4px,1px)", filter: "drop-shadow(3px 0 #ffd23f) drop-shadow(-3px 0 #29f0ff)" },
+              { transform: "translate(3px,-1px)", filter: "drop-shadow(-3px 0 #ffd23f) drop-shadow(3px 0 #29f0ff)" },
               { transform: "translate(0,0)", filter: "none" },
             ],
             { duration: 260, easing: "steps(4)" },
@@ -169,7 +199,7 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
           );
           anims.push(last);
         });
-        flash(fx.to, OUTCOME.incorrect);
+        flash(fx.to, MISS);
       } else if (fx.verdict === "info") {
         grid.classList.add("scan");
         cells.forEach((c, i) => {
@@ -199,22 +229,24 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
           );
           anims.push(last);
         });
-        setTimeout(() => flash(fx.to ?? fx.role, OUTCOME[fx.verdict]), 380);
+        setTimeout(() => flash(fx.to ?? fx.role, outcomeColor(fx)), 380);
       }
       if (last) (last as Animation).onfinish = done;
       else done();
     };
     // safety net: never leave a card on the board
-    const guard = setTimeout(done, 3500);
+    const guard = setTimeout(done, 9000);
     return () => {
       clearTimeout(guard);
+      if (holdTimer) clearTimeout(holdTimer);
       anims.forEach((a) => a.cancel());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div ref={mover} className="fx-card" style={{ ["--k" as string]: ROLE_COLOR[fx.role], ["--o" as string]: OUTCOME[fx.verdict] }}>
+    <div ref={mover} className="fx-card" style={{ ["--k" as string]: ROLE_COLOR[fx.role], ["--o" as string]: outcomeColor(fx), ["--fw" as string]: `${CARD_W}px`, ["--fh" as string]: `${CARD_H}px` }}>
+      <span className="fx-timer" />
       <div ref={bits} className="fx-bits">
         {Array.from({ length: COLS * ROWS }, (_, i) => {
           const col = i % COLS;

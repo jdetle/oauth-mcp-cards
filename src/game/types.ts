@@ -184,13 +184,39 @@ export interface Card {
 
 export type Verdict = "correct" | "incorrect" | "neutral" | "info";
 
+/** What kind of action a call is. Colour follows this, never right/wrong. */
+export type Tone = "go" | "stop" | "send";
+export interface Chip {
+  label: string;
+  tone: Tone;
+}
+/** Expected vs played for one judged move. A correct Reject is stop = stop: a match. */
+export interface Call {
+  expected: Chip;
+  played: Chip;
+  matched: boolean;
+}
+
 export interface LogEntry {
   seq: number;
+  /** when it happened (epoch ms) */
+  at: number;
   role: Role | null;
   playerName: string | null;
   text: string;
   verdict: Verdict;
   detail?: string;
+  /** expected vs played, for judged moves */
+  call?: Call;
+}
+
+/** A finished round's log, kept for the game-long timeline. */
+export interface ArchivedRound {
+  index: number;
+  title: string;
+  phase: Phase;
+  success: boolean | null;
+  log: LogEntry[];
 }
 
 export interface ScoreBreakdown {

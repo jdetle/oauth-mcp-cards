@@ -23,13 +23,14 @@
     "dev:api": "cd server && DEV_ORIGIN=http://localhost:3000 cargo run",
     "dev:web": "next dev --port 3000",
     "build": "NEXT_PUBLIC_API_BASE= next build && cd server && cargo build --release",
-    "start": "bun run build && cd server && STATIC_DIR=../out SCENARIOS_DIR=../scenarios ./target/release/oauth-mcp-server",
+    "start": "bun run build && cd server && set -a && { [ -f ../.env.admin ] && . ../.env.admin; true; } && set +a && STATIC_DIR=../out SCENARIOS_DIR=../scenarios ./target/release/oauth-mcp-server",
     "test": "cd server && cargo test -q && cd .. && bun test tests/ && playwright test",
     "test:rust": "cd server && cargo test",
     "test:live": "bun test tests/",
     "load": "bun scripts/load.ts",
     "typecheck": "tsc --noEmit",
     "deploy": "bash deploy/fargate.sh",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "admin:password": "bash scripts/admin-password.sh"
   }
 }

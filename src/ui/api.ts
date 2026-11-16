@@ -37,12 +37,12 @@ export type SeatChoice = Role | "auto" | "spectate";
 
 const seat = (role: SeatChoice) => (role === "auto" ? undefined : role);
 
-export async function createRoom(password: string, displayName: string, role: SeatChoice) {
-  return post("/api/rooms", { password, displayName, role: seat(role) });
+export async function createRoom(password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null) {
+  return post("/api/rooms", { password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined });
 }
 
-export async function joinRoom(room: string, password: string, displayName: string, role: SeatChoice) {
-  return post(`/api/rooms/${encodeURIComponent(room)}/join`, { password, displayName, role: seat(role) });
+export async function joinRoom(room: string, password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null) {
+  return post(`/api/rooms/${encodeURIComponent(room)}/join`, { password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined });
 }
 
 export async function listRooms(): Promise<{ name: string; seated: number }[] | null> {

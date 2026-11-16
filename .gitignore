@@ -11,3 +11,4 @@ server/target
 test-results
 playwright-report
 e2e/screenshots
+.env.admin

@@ -5,6 +5,7 @@
    ========================================================================== */
 
 :root {
+  --warn: #ffd23f; /* mismatch: expected ≠ played. Red and green are reserved for stop and go. */
   --void: #03050b;
   --deep: #070b16;
   --panel: rgba(8, 14, 28, 0.82);
@@ -472,13 +473,15 @@ option { background: var(--panel-solid); }
 
 /* ---- card-play effects: cards made of bits ----------------------------------------- */
 .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 50; overflow: hidden; }
-.fx-card { --k: var(--cyan); --o: var(--cyan); position: absolute; left: 0; top: 0; width: 200px; height: 124px; will-change: transform; }
+.fx-card { --k: var(--cyan); --o: var(--cyan); --fw: 264px; --fh: 168px; position: absolute; left: 0; top: 0; width: var(--fw); height: var(--fh); will-change: transform; }
+/* countdown while the card holds still to be read */
+.fx-timer { position: absolute; left: 0; right: 0; bottom: -7px; height: 3px; background: var(--o); box-shadow: 0 0 10px var(--o); transform-origin: left center; z-index: 2; }
 .fx-bits { position: relative; width: 100%; height: 100%; filter: drop-shadow(0 0 14px color-mix(in srgb, var(--k) 70%, transparent)); }
 .fx-bit { position: absolute; overflow: hidden; will-change: transform, opacity; }
-.fx-bit > div { width: 200px; height: 124px; }
+.fx-bit > div { width: var(--fw); height: var(--fh); }
 .fx-face {
-  width: 200px; height: 124px;
-  display: grid; align-content: space-between; padding: 10px 12px;
+  width: var(--fw); height: var(--fh);
+  display: grid; align-content: space-between; padding: 12px 14px;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--k) 26%, transparent), transparent 70%),
     repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 12px),
@@ -486,12 +489,11 @@ option { background: var(--panel-solid); }
   border: 2px solid var(--k);
   color: #fff;
 }
-.fx-role { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--k); }
-.fx-text { font-size: 0.76rem; line-height: 1.3; font-weight: 600; }
+.fx-role { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--k); }
+.fx-text { font-size: 0.9rem; line-height: 1.32; font-weight: 600; }
 .fx-mark { justify-self: end; font-size: 1.05rem; color: var(--o); text-shadow: 0 0 10px var(--o); }
-.fx-bits.bad { filter: drop-shadow(0 0 14px rgba(255, 45, 85, 0.8)); }
-.fx-bits.bad .fx-face { border-color: var(--red); background: linear-gradient(135deg, rgba(255, 45, 85, 0.3), transparent 70%), #12050a; }
-.fx-bits.bad .fx-role { color: var(--red); }
+.fx-bits.bad { filter: drop-shadow(0 0 14px rgba(255, 210, 63, 0.8)); }
+.fx-bits.bad .fx-face { border-color: var(--warn); }
 .fx-bits.scan::after {
   content: ""; position: absolute; left: -6px; right: -6px; top: 0; height: 3px;
   background: var(--cyan); box-shadow: 0 0 16px 4px rgba(41, 240, 255, 0.8);
@@ -628,3 +630,91 @@ input[type="range"] { padding: 0; min-height: 28px; border: 0; background: trans
   .core { width: 80%; }
   .terminal { padding: 10px 12px 12px; }
 }
+
+/* ---- admin ------------------------------------------------------------------------------ */
+button.danger { border-color: var(--red); color: #ffd3dc; background: rgba(255, 45, 85, 0.08); }
+button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-shadow: inset 0 0 18px rgba(255, 45, 85, 0.35); }
+.admin-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.admin-rooms li { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--cyan); background: rgba(3, 7, 16, 0.55); }
+.admin-room-head { display: flex; gap: 6px 16px; align-items: baseline; flex-wrap: wrap; }
+.admin-room-head .room-name { font-size: 1.05rem; }
+.admin-players { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-player { display: inline-flex; gap: 6px; align-items: center; padding: 3px 9px; border: 1px solid var(--line); font-size: 0.82rem; opacity: 0.55; }
+.admin-player.on { opacity: 1; border-color: var(--line-strong); }
+.admin-player i { font-style: normal; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.turnstile { min-height: 65px; }
+
+/* ---- timeline: the game-long record of every move ---------------------------------------- */
+.timeline { display: grid; gap: 10px; min-width: 0; }
+.tl-strip { display: flex; align-items: flex-end; gap: 2px; height: 26px; padding: 4px 6px; border: 1px solid var(--line); background: rgba(3, 7, 16, 0.6); overflow: hidden; }
+.tl-strip i { flex: 0 0 4px; height: 70%; background: var(--cyan); opacity: 0.9; }
+.tl-strip i.t-go { background: var(--green); }
+.tl-strip i.t-stop { background: var(--red); }
+.tl-strip i.t-send { background: var(--cyan); }
+.tl-strip i.t-none { height: 35%; background: var(--dim); }
+/* a mismatch stands taller and wears a yellow cap */
+.tl-strip i.miss { height: 100%; box-shadow: 0 -3px 0 0 var(--warn) inset, 0 0 6px var(--warn); border-top: 3px solid var(--warn); }
+.tl-strip i.gap { margin-left: 7px; }
+.tl-empty { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); align-self: center; }
+.tl-feed.log { display: block; max-height: 460px; overflow-y: auto; font-family: var(--sans); font-size: 0.84rem; padding-right: 4px; }
+.tl-feed section + section { margin-top: 14px; }
+.tl-feed ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tl-round { position: sticky; top: 0; z-index: 1; margin: 0 0 8px; padding: 5px 8px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+  font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 400; color: var(--muted);
+  background: #070d1b; border-bottom: 1px solid var(--line); }
+.tl-round em { font-style: normal; color: var(--muted); }
+.tl-round em.ok { color: var(--green); }
+.tl-round em.bad { color: var(--red); }
+.tl-round.live em { color: var(--cyan); animation: pulse 1.4s infinite; }
+.tl-feed li.tl-msg { --c: var(--cyan); padding: 7px 10px 8px; background: color-mix(in srgb, var(--c) 7%, transparent); border-left: 2px solid var(--c); box-shadow: none; max-width: 94%; }
+.tl-msg.r-client { --c: var(--r-client); }
+.tl-msg.r-application { --c: var(--r-application); margin-left: 6%; }
+.tl-msg.r-idp { --c: var(--r-idp); }
+.tl-msg.r-mcp { --c: var(--r-mcp); margin-left: 6%; }
+.tl-msg.miss { border-left-color: var(--warn); background: rgba(255, 210, 63, 0.07); }
+.tl-meta { display: flex; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.tl-meta b { color: var(--c); font-weight: 600; }
+.tl-meta span { color: var(--muted); text-transform: none; letter-spacing: 0; }
+.tl-meta time { margin-left: auto; color: var(--dim); }
+.tl-msg p { margin: 3px 0 0; line-height: 1.4; }
+.tl-msg .mark.ok { color: var(--green); }
+.tl-msg .mark.bad { color: var(--red); }
+.tl-msg .detail { color: var(--muted); font-size: 0.78rem; }
+.tl-feed li.tl-sys, p.tl-sys { padding: 2px 4px; background: none; border: 0; box-shadow: none; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.tl-sys time { color: var(--dim); }
+.tl-sys.correct { color: var(--green); }
+.tl-sys.incorrect { color: var(--red); }
+.timeline.compact .tl-feed.log { max-height: 300px; }
+
+/* the dock that carries the record onto the other pages */
+.feed-dock { position: fixed; right: 14px; bottom: 14px; z-index: 40; width: min(360px, calc(100vw - 28px)); display: grid; gap: 0; }
+.feed-toggle { width: 100%; justify-content: flex-start; display: flex; align-items: center; gap: 8px; min-height: 40px; text-transform: none; letter-spacing: 0.02em; font-family: var(--mono); font-size: 0.78rem; background: rgba(4, 8, 18, 0.96); clip-path: none; }
+.feed-body { display: grid; gap: 10px; padding: 12px; background: rgba(4, 8, 18, 0.97); border: 1px solid var(--line-strong); border-top: 0; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6); }
+.feed-dock.open .feed-toggle { border-bottom-color: transparent; }
+
+/* ---- expected vs played -------------------------------------------------------------------
+   Colour = the kind of call (stop red, go green, send cyan). Right or wrong = the sign between. */
+.chip { display: inline-block; padding: 1px 8px; font-family: var(--mono); font-size: 0.68rem; font-style: normal; letter-spacing: 0.06em; border: 1px solid currentColor; white-space: nowrap; }
+.chip.t-go { color: var(--green); background: rgba(61, 255, 162, 0.10); }
+.chip.t-stop { color: var(--red); background: rgba(255, 45, 85, 0.12); }
+.chip.t-send { color: var(--cyan); background: rgba(41, 240, 255, 0.08); }
+.call { display: inline-flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 8px; margin-top: 6px; }
+.call-side { display: inline-grid; gap: 1px; }
+.call-side small { font-family: var(--mono); font-size: 0.54rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+.call-side .chip { white-space: normal; }
+.call-eq { font-family: var(--mono); font-weight: 800; font-size: 1rem; line-height: 1.25; color: #fff; }
+.call-word { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: #fff; align-self: center; padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.5); }
+.call.miss .call-eq { color: var(--warn); text-shadow: 0 0 10px var(--warn); }
+.call.miss .call-word { color: #1a1400; background: var(--warn); border-color: var(--warn); }
+.calls { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); background: rgba(3, 7, 16, 0.5); }
+.calls h3 { margin: 0; }
+.calls ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.calls li { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: flex-end; }
+.calls li .call { margin-top: 0; }
+.calls-who { --c: var(--cyan); min-width: 150px; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c); }
+.calls-who.r-client { --c: var(--r-client); } .calls-who.r-application { --c: var(--r-application); } .calls-who.r-idp { --c: var(--r-idp); } .calls-who.r-mcp { --c: var(--r-mcp); }
+.calls p { margin: 0; }
+.fx-call { display: flex; align-items: center; gap: 5px; justify-self: end; max-width: 100%; }
+.fx-call .chip { font-size: 0.66rem; padding: 1px 6px; max-width: 104px; overflow: hidden; text-overflow: ellipsis; background: #050b18; }
+.fx-call b { font-size: 1rem; }
+.fx-call b { font-family: var(--mono); color: #fff; }

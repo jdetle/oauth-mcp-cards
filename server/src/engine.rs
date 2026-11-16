@@ -97,6 +97,8 @@ pub struct Game {
     pub host_id: Option<String>,
     pub started: bool,
     pub round: Option<Round>,
+    /// logs of earlier rounds, oldest first (Arc: cloning a Game stays cheap)
+    pub archive: Vec<Arc<ArchivedRound>>,
     pub keys: Keys,
     now_fn: Arc<dyn Fn() -> i64 + Send + Sync>,
     id_fn: Arc<dyn Fn() -> String + Send + Sync>,
@@ -125,6 +127,60 @@ fn card_flow(c: &Card) -> Option<Flow> {
         CardType::TokenRequest => Flow::Oauth,
         _ => return None,
     })
+}
+
+fn chip(label: &str, tone: Tone) -> Chip {
+    Chip { label: label.to_string(), tone }
+}
+
+/// The short name of the call a flow asks the Application (or Client) to make.
+fn flow_chip(f: Flow) -> Chip {
+    match f {
+        Flow::Obo => chip("Exchange (OBO)", Tone::Send),
+        Flow::Jag => chip("Signed assertion", Tone::Send),
+        Flow::Idjag => chip("Exchange (ID-JAG)", Tone::Send),
+        Flow::Oauth => chip("Authorize with the IdP", Tone::Send),
+        Flow::Passthrough => chip("Forward the token", Tone::Send),
+        Flow::Apikey => chip("API key", Tone::Send),
+        Flow::Upstream => chip("Stored credential", Tone::Send),
+        Flow::Sigv4 => chip("SigV4 signature", Tone::Send),
+        Flow::Zerotrust => chip("Gateway JWT", Tone::Send),
+        Flow::Reauth => chip("Stop: re-authenticate", Tone::Stop),
+    }
+}
+
+/// The short name of what a card does.
+fn played_chip(c: &Card) -> Chip {
+    if let Some(f) = card_flow(c) {
+        return flow_chip(f);
+    }
+    match c.card_type {
+        CardType::Request if c.params.to == Some(Role::Mcp) => chip("Go straight to the MCP Server", Tone::Send),
+        CardType::Request => chip("Send to the Application", Tone::Send),
+        CardType::Cached => chip("Cached token", Tone::Send),
+        CardType::Selfmint => chip("Self-written token", Tone::Send),
+        CardType::AwsSecret => chip("AWS secret as bearer", Tone::Send),
+        CardType::Issue => chip("Issue", Tone::Go),
+        CardType::Accept => chip("Accept", Tone::Go),
+        CardType::Reject => chip("Reject", Tone::Stop),
+        _ => chip(&c.label, Tone::Send),
+    }
+}
+
+/// Why a call of the right kind was still wrong, in a few words.
+fn defect(reason: &str) -> &'static str {
+    match reason {
+        "scope_exceeds_consent" => "scope beyond consent",
+        "assertion_audience" | "audience_mismatch" | "subject_audience" | "app_forward" => "wrong audience",
+        "key_in_url" => "key in the URL",
+        "sigv4_clock_skew" => "replayed",
+        "alg_none" | "bad_signature" => "not signed",
+        "credential_owner_mismatch" => "someone else's credential",
+        "pkce_required" => "no PKCE",
+        "client_stale" | "expired" => "expired token",
+        "no_token" | "no_subject_token" => "no token",
+        _ => "invalid",
+    }
 }
 
 fn in_flight_flow(f: &InFlight) -> Option<Flow> {
@@ -171,6 +227,7 @@ impl Game {
             host_id: None,
             started: false,
             round: None,
+            archive: vec![],
             keys: Keys { app: new_key_pair(), gateway: new_key_pair(), sigv4_secret: random_hex(20) },
             now_fn: Arc::new(now_ms),
             id_fn: Arc::new(random_id),
@@ -330,9 +387,10 @@ impl Game {
             if copy.play(sim, &c.id).is_err() {
                 return false;
             }
+            // judge only this sim's own call: rejecting something a player upstream got wrong
+            // is the right move even though the round then ends broken
             let rr = copy.round.as_ref().unwrap();
             rr.moves.last().map(|m| m.correct != Some(false)).unwrap_or(true)
-                && !(rr.status == RoundStatus::Done && !rr.result.as_ref().map(|x| x.success).unwrap_or(true))
         });
         let pick = if !good.is_empty() && (bad.is_empty() || rng.gen_bool(skill.clamp(0.0, 1.0))) {
             good[rng.gen_range(0..good.len())]
@@ -514,6 +572,20 @@ impl Game {
         Self::log(&mut r, None, &format!("Round {}{title}. {}", index + 1, s.text), Verdict::Info, None, None);
         if r.status == RoundStatus::Identify {
             Self::log(&mut r, None, "Each player privately picks the flow they think applies.", Verdict::Info, None, None);
+        }
+        if let Some(old) = self.round.take() {
+            let offset = self.assessment_offset();
+            let os = &scenarios[old.index];
+            self.archive.push(Arc::new(ArchivedRound {
+                index: old.index,
+                title: if os.phase == Phase::Assessment { format!("Assessment {}", old.index + 1 - offset) } else { os.title.clone() },
+                phase: os.phase,
+                success: old.result.as_ref().map(|x| x.success),
+                log: old.log,
+            }));
+            if self.archive.len() > 60 {
+                self.archive.remove(0);
+            }
         }
         self.round = Some(r);
         Ok(())
@@ -870,6 +942,8 @@ impl Game {
         let mut next: Option<InFlight> = None;
         let mut end: Option<End> = None;
         let mut bonus = false;
+        // for decision cards: what the right decision was (set in that arm)
+        let mut expected_decision: Option<Chip> = None;
         let text: String;
         let verdict: Verdict0;
         let now = self.now();
@@ -956,6 +1030,15 @@ impl Game {
                 let flow = in_flight_flow(fl);
                 let wrong_flow = role == Role::Idp && matches!((&expected, flow), (Some(e), Some(fl)) if !e.contains(&fl));
                 let first_detail = v.first_failure_detail().unwrap_or("invalid").to_string();
+                if !card.params.scripted {
+                    expected_decision = Some(if !v.valid || wrong_flow {
+                        chip("Reject", Tone::Stop)
+                    } else if role == Role::Idp {
+                        chip("Issue", Tone::Go)
+                    } else {
+                        chip("Accept", Tone::Go)
+                    });
+                }
                 if card.card_type == CardType::Reject {
                     end = Some(End::Round);
                     if !v.valid {
@@ -1026,6 +1109,45 @@ impl Game {
         };
         let detail = if verdict.correct == Some(false) { verdict.explanation.clone() } else { None };
         Self::log(r, Some(role), &text, v, detail, Some(name.to_string()));
+
+        // expected vs played
+        let call = if card.params.scripted || card.card_type == CardType::Introspect {
+            None
+        } else {
+            let mut played = played_chip(card);
+            let wrong = verdict.correct == Some(false);
+            let reason = verdict.reason.as_deref().unwrap_or("");
+            let expected_chip = match card.card_type {
+                CardType::Issue | CardType::Accept | CardType::Reject => expected_decision.clone(),
+                CardType::Request | CardType::TokenRequest => Some(if !wrong {
+                    played.clone()
+                } else if reason == "client_bypass" {
+                    chip("Send to the Application", Tone::Send)
+                } else if matches!(&expected, Some(e) if e.iter().all(|x| *x == Flow::Oauth)) {
+                    flow_chip(Flow::Oauth)
+                } else {
+                    played.clone()
+                }),
+                _ => match &expected {
+                    Some(e) => Some(match card_flow(card) {
+                        Some(f) if e.contains(&f) => flow_chip(f),
+                        _ => flow_chip(e[0]),
+                    }),
+                    None => Some(played.clone()),
+                },
+            };
+            expected_chip.map(|exp| {
+                // right kind of call, wrong in the details: say what was off
+                if wrong && exp == played {
+                    played.label = format!("{} · {}", played.label, defect(reason));
+                }
+                let matched = exp == played;
+                Call { expected: exp, played, matched }
+            })
+        };
+        if let Some(last) = r.log.last_mut() {
+            last.call = call;
+        }
 
         if role == Role::Client {
             if let Some(InFlight::Request { to: Role::Application, token, .. }) = &next {
@@ -1193,7 +1315,7 @@ impl Game {
 
     fn log(r: &mut Round, role: Option<Role>, text: &str, verdict: Verdict, detail: Option<String>, player_name: Option<String>) {
         r.seq += 1;
-        r.log.push(LogEntry { seq: r.seq, role, player_name, text: text.to_string(), verdict, detail });
+        r.log.push(LogEntry { seq: r.seq, at: now_ms(), role, player_name, text: text.to_string(), verdict, detail, call: None });
         if r.log.len() > MAX_LOG {
             r.log.remove(0);
         }

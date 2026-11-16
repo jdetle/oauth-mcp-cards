@@ -9,6 +9,23 @@ Parameters:
   CloudFrontPrefixList:
     Type: String
     Description: Managed prefix list id for com.amazonaws.global.cloudfront.origin-facing in this region
+  AdminHashParam:
+    Type: String
+    Default: ""
+    Description: SSM SecureString parameter name holding the admin password hash (empty = admin disabled)
+  TurnstileSiteKey:
+    Type: String
+    Default: ""
+    Description: Cloudflare Turnstile site key (public). Empty = bot check off
+  TurnstileSecretParam:
+    Type: String
+    Default: ""
+    Description: SSM SecureString parameter name holding the Turnstile secret key
+
+Conditions:
+  HasAdmin: !Not [!Equals [!Ref AdminHashParam, ""]]
+  HasTurnstile: !And [!Not [!Equals [!Ref TurnstileSiteKey, ""]], !Not [!Equals [!Ref TurnstileSecretParam, ""]]]
+  HasSecrets: !Or [!Condition HasAdmin, !Condition HasTurnstile]
 
 Resources:
   # ---- network: small VPC, two public subnets, no NAT (task gets a public IP for ECR pulls) ----
@@ -109,6 +126,18 @@ Resources:
       AssumeRolePolicyDocument:
         Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
       ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - !If
+          - HasSecrets
+          - PolicyName: read-app-secrets
+            PolicyDocument:
+              Statement:
+                - Effect: Allow
+                  Action: ssm:GetParameters
+                  Resource:
+                    - !If [HasAdmin, !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AdminHashParam}", !Ref "AWS::NoValue"]
+                    - !If [HasTurnstile, !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParam}", !Ref "AWS::NoValue"]
+          - !Ref "AWS::NoValue"
   TaskDef:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -127,6 +156,16 @@ Resources:
           Environment:
             - { Name: SECURE_COOKIES, Value: "1" }
             - { Name: TRUST_CLOUDFRONT, Value: "1" }
+            - !If [HasTurnstile, { Name: TURNSTILE_SITE_KEY, Value: !Ref TurnstileSiteKey }, !Ref "AWS::NoValue"]
+          Secrets:
+            - !If
+              - HasAdmin
+              - { Name: ADMIN_PASSWORD_HASH, ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AdminHashParam}" }
+              - !Ref "AWS::NoValue"
+            - !If
+              - HasTurnstile
+              - { Name: TURNSTILE_SECRET, ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParam}" }
+              - !Ref "AWS::NoValue"
           LogConfiguration:
             LogDriver: awslogs
             Options:

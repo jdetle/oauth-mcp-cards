@@ -37,9 +37,33 @@ Not a dashboard: a board game played on a light-grid, with a visual language tak
 - **`/learn/`: how signatures work**, as three things to play with, in the order Brit Cruise's *Art of the Problem* teaches them: mixing paint (a shared secret agreed in public), clock arithmetic (3ˣ mod 17: easy forward, brute force backward), and a toy RSA signature you can tamper with or forge. It ends by mapping each idea to the cards in the game, including which ones are *not* public-key (SigV4's shared secret, API keys).
 - Dark only, with a perspective grid floor. All motion is turned off under `prefers-reduced-motion`.
 
+## Reading a move: expected vs played
+
+Colour means the *kind* of call, never right or wrong: red stops (Reject), green lets through (Accept, Issue), cyan passes something on. Whether a call was right is shown as a comparison, `expected [chip] = played [chip]`. A Reject that was called for is red = red: a match. A mismatch shows `≠` with a yellow tag, and when the call was the right kind but flawed, the flaw is named ("Exchange (OBO) · scope beyond consent"). The same pair appears on the card in play, in the timeline, and in the round result.
+
+Each card play stays on screen for a little over five seconds (it holds above the receiver with a countdown bar) so the table can read it. Sims wait that out before moving.
+
+## Timeline
+
+The side panel keeps a timestamped, chat-style record of every move in every round, with a strip of ticks along the top (one per move, coloured by kind of call, taller with a yellow cap for a mismatch). It is the server's record, so it survives reloads, and only people in the room can fetch it. On the lobby, `/learn/` and `/reference/` pages a small dock shows the live timeline of the room you're in.
+
+## Admin
+
+`/admin/` lists active games (players, round, connections, idle time) and can delete any of them. Deleting disconnects everyone at that table with a clear message.
+
+```bash
+bun run admin:password      # prompts for the password (hidden), stores only its scrypt hash
+```
+
+The hash goes to `.env.admin` for local runs and to AWS SSM Parameter Store (SecureString) for the deployed site, which picks it up on the next `bun run deploy`. Without a hash, admin is switched off (404). Sign-in is rate limited (5 attempts per 5 minutes per client), sets an HttpOnly, SameSite=Strict cookie valid for 8 hours, and state-changing calls also need a custom header that cross-site requests can't send.
+
+## Bot check (Cloudflare Turnstile)
+
+When `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET` are set, creating a room, joining one and admin sign-in all require a Turnstile token, which the server verifies with Cloudflare. For the deployed site, store them in SSM as `/oauth-mcp-cards/turnstile-site-key` (String) and `/oauth-mcp-cards/turnstile-secret` (SecureString); the next deploy turns the check on. Unset means off. Note: this is the one place the site loads a third-party script and calls an outside service.
+
 ## Playing solo: sims
 
-Any player can press **Fill empty seats with sims**. Sims are simulated players run by the server: they take their turns with a human-paced delay, sometimes use a free check first, lock in a flow guess in assessment rounds, and make the right call about 85% of the time (`SIM_SKILL`). They carry a **SIM** tag. A person who joins when no seat is free takes over a sim's seat, mid-round if need be, and the host can remove sims between rounds.
+Any player can press **Fill empty seats with sims**. Sims are simulated players run by the server: they take their turns with a human-paced delay, sometimes use a free check first, lock in a flow guess in assessment rounds, and make the right call about 85% of the time (`SIM_SKILL`), judged on their own call only (a sim will correctly reject what a human upstream got wrong). They carry a **SIM** tag. A person who joins when no seat is free takes over a sim's seat, mid-round if need be, and the host can remove sims between rounds.
 
 ## Architecture
 
@@ -163,7 +187,7 @@ The identity you deploy with needs CloudFormation plus create rights for IAM rol
 - Room names are generated from a neutral word list, never user-supplied.
 - Passwords: scrypt-hashed per room. Failed joins are rate limited per client IP and room (5/min); room creation is limited per IP (10/min). Behind CloudFront the client IP comes from `CloudFront-Viewer-Address`, which viewers can't forge.
 - Sockets without a valid signed session cookie for that room are closed (code 4401). Messages are capped at 1 KB, strictly schema-checked (unknown fields rejected), and rate limited per socket.
-- No telemetry, no analytics, no third-party scripts or fonts.
+- No telemetry, no analytics, no third-party fonts. The only third-party script is Cloudflare Turnstile, and only when the bot check is configured.
 
 ## Layout
 

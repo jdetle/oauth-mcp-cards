@@ -447,16 +447,56 @@ pub enum Verdict {
     Info,
 }
 
+/// What kind of action a call is. Colour follows this, never right/wrong:
+/// go = accept / issue (green), stop = reject (red), send = passing something on (neutral).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tone {
+    Go,
+    Stop,
+    Send,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Chip {
+    pub label: String,
+    pub tone: Tone,
+}
+
+/// Expected vs played for one judged move. A correct Reject is stop = stop: a match.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Call {
+    pub expected: Chip,
+    pub played: Chip,
+    pub matched: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
     pub seq: u64,
+    /// when it happened (epoch ms)
+    pub at: i64,
     pub role: Option<Role>,
     pub player_name: Option<String>,
     pub text: String,
     pub verdict: Verdict,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// expected vs played, for judged moves
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub call: Option<Call>,
+}
+
+/// A finished (or replaced) round's log, kept for the game-long timeline.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivedRound {
+    pub index: usize,
+    pub title: String,
+    pub phase: Phase,
+    pub success: Option<bool>,
+    pub log: Vec<LogEntry>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]

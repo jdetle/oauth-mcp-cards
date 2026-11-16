@@ -45,9 +45,22 @@ if [[ "$STATUS" != "SUCCEEDED" ]]; then
 fi
 
 PL="$(aws ec2 describe-managed-prefix-lists --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing --query 'PrefixLists[0].PrefixListId' --output text)"
+# Optional secrets, kept in SSM Parameter Store (set with `bun run admin:password` / deploy/turnstile.sh)
+ADMIN_PARAM="${ADMIN_HASH_PARAM:-/oauth-mcp-cards/admin-password-hash}"
+TS_SECRET_PARAM="${TURNSTILE_SECRET_PARAM:-/oauth-mcp-cards/turnstile-secret}"
+TS_SITE_PARAM="${TURNSTILE_SITE_PARAM:-/oauth-mcp-cards/turnstile-site-key}"
+has_param() { aws ssm get-parameter --name "$1" --query Parameter.Name --output text >/dev/null 2>&1; }
+EXTRA=()
+if has_param "$ADMIN_PARAM"; then EXTRA+=("AdminHashParam=$ADMIN_PARAM"); echo "    admin: enabled"; else EXTRA+=("AdminHashParam="); echo "    admin: disabled (run: bun run admin:password)"; fi
+if has_param "$TS_SECRET_PARAM" && has_param "$TS_SITE_PARAM"; then
+  EXTRA+=("TurnstileSiteKey=$(aws ssm get-parameter --name "$TS_SITE_PARAM" --query Parameter.Value --output text)" "TurnstileSecretParam=$TS_SECRET_PARAM"); echo "    bot check (Turnstile): enabled"
+else
+  EXTRA+=("TurnstileSiteKey=" "TurnstileSecretParam="); echo "    bot check (Turnstile): disabled"
+fi
+
 echo "==> App stack ($APP_STACK) with $REPO:$TAG"
 aws cloudformation deploy --stack-name "$APP_STACK" --template-file deploy/app.yaml --capabilities CAPABILITY_IAM \
-  --parameter-overrides "ImageUri=$REPO:$TAG" "CloudFrontPrefixList=$PL" --no-fail-on-empty-changeset
+  --parameter-overrides "ImageUri=$REPO:$TAG" "CloudFrontPrefixList=$PL" "${EXTRA[@]}" --no-fail-on-empty-changeset
 
 URL="$(out "$APP_STACK" Url)"
 echo "==> Waiting for $URL/api/health"

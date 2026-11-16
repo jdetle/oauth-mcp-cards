@@ -18,9 +18,10 @@ import { JoinForm } from "./JoinForm.tsx";
 import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
 import { KeysContext, Seal } from "./Seal.tsx";
+import { CallPair, rememberRoom, Timeline } from "./Timeline.tsx";
 import { TokenSlip } from "./Slip.tsx";
 
-type Conn = "connecting" | "open" | "closed" | "unauthorized";
+type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted";
 
 /** WebSocket with automatic reconnect. The session cookie authenticates it; close code 4401 = not joined. */
 function useGame(room: string, attempt: number) {
@@ -48,6 +49,7 @@ function useGame(room: string, attempt: number) {
       ws.onclose = (e) => {
         if (stopped) return;
         if (e.code === 4401) return setConn("unauthorized");
+        if (e.code === 4410) return setConn("deleted"); // an admin closed this game
         setConn("closed");
         retry = setTimeout(connect, backoff);
         backoff = Math.min(backoff * 2, 8000);
@@ -94,6 +96,19 @@ export function Table({ room }: { room: string }) {
   const [attempt, setAttempt] = useState(0);
   const g = useGame(room, attempt);
 
+  if (g.conn === "deleted") {
+    rememberRoom(null);
+    return (
+      <main className="wrap stack">
+        <section className="panel stack">
+          <p className="kicker">Game over</p>
+          <h1 className="room-name">{room}</h1>
+          <p>This game was closed by an admin.</p>
+          <a href="/">← Back to the lobby</a>
+        </section>
+      </main>
+    );
+  }
   if (g.conn === "unauthorized") {
     return (
       <main className="wrap stack">
@@ -107,6 +122,7 @@ export function Table({ room }: { room: string }) {
     );
   }
   if (!g.state || !g.you) return <main className="wrap">Connecting to {room}…</main>;
+  rememberRoom(room);
   return <Game room={room} state={g.state} you={g.you} conn={g.conn} error={g.error} send={g.send} leave={() => { location.href = "/"; }} />;
 }
 
@@ -330,6 +346,18 @@ function Result({ state, you, send }: { state: PublicState; you: PrivateView; se
         <h2 id="res-h">{res.success ? "Chain unbroken" : `Chain broken at ${ROLE_NAMES[res.failedStep!.role]} (${res.failedStep!.playerName})`}</h2>
       </div>
       {res.failedStep ? <p style={{ margin: 0 }}><b>The move:</b> {res.failedStep.text}</p> : null}
+      <div className="calls" aria-label="Expected versus played, move by move">
+        <h3>Expected vs played</h3>
+        <ol>
+          {state.round!.log.filter((l) => l.call && l.role).map((l) => (
+            <li key={l.seq}>
+              <span className={`calls-who r-${l.role}`}>{ROLE_NAMES[l.role!]}</span>
+              <CallPair call={l.call!} />
+            </li>
+          ))}
+        </ol>
+        <p className="muted small">Colour is the kind of call: red stops, green lets through. A red Reject that was expected is a match.</p>
+      </div>
       <p style={{ margin: 0 }}>{res.explanation}</p>
       {res.tells ? <p className="small" style={{ margin: 0 }}><b>Tells:</b> {res.tells}</p> : null}
       {res.discussion ? <p className="small" style={{ margin: 0 }}><b>Discuss:</b> {res.discussion}</p> : null}
@@ -355,10 +383,6 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
   const [tab, setTab] = useState<"log" | "score">("log");
   const r = state.round;
   const role = myRoundRole ?? you.role;
-  const logRef = useRef<HTMLOListElement>(null);
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [r?.log.length, tab]);
   const players = [...state.players].sort((a, b) => b.score.calls + b.score.identify + b.score.bonus - (a.score.calls + a.score.identify + a.score.bonus));
   return (
     <aside className="side">
@@ -387,20 +411,11 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
       ) : null}
       <section className="panel stack">
         <div className="tabs" role="tablist">
-          <button role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}>Round log</button>
+          <button role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}>Timeline</button>
           <button role="tab" aria-selected={tab === "score"} onClick={() => setTab("score")}>Scoreboard</button>
         </div>
         {tab === "log" ? (
-          <ol className="log" ref={logRef} aria-live="polite">
-            {r?.log.map((l) => (
-              <li key={l.seq} className={l.verdict}>
-                {l.role ? <b>{ROLE_NAMES[l.role]}{l.playerName ? ` (${l.playerName})` : ""}: </b> : null}
-                {l.text}
-                {l.verdict === "correct" ? " ✓" : l.verdict === "incorrect" ? " ✗" : ""}
-                {l.detail ? <span className="detail">{l.detail}</span> : null}
-              </li>
-            )) ?? <li className="info">The round log appears here.</li>}
-          </ol>
+          <Timeline room={state.room} round={r} />
         ) : (
           <table className="score">
             <thead><tr><th>Player</th><th>Calls</th><th>ID</th><th>Bonus</th><th>Total</th></tr></thead>
