@@ -1,0 +1,46 @@
+{
+  "id": "learning-nonoauth",
+  "order": 19,
+  "phase": "learning",
+  "title": "Learning: Non-OAuth (API key)",
+  "flowLabel": "Non-OAuth: static API key",
+  "text": "An internal build pipeline calls the team's docs-search MCP server. That server has no OAuth support; it expects a static API key.",
+  "userPresent": false,
+  "request": {
+    "action": "Search the docs",
+    "requiredScope": "docs.search",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "apikey"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "apiKeys": [
+    {
+      "keyId": "sk_...c9f2",
+      "owner": "build-pipeline",
+      "scopes": [
+        "docs.*"
+      ]
+    }
+  ],
+  "hands": {
+    "application": [
+      "app.api_key",
+      "app.api_key_query",
+      "app.forward",
+      "app.assertion"
+    ]
+  },
+  "teaches": [
+    "Not every MCP server speaks OAuth. A static key is acceptable for simple, internal, service-to-service calls.",
+    "Keys go in a header, never the URL, and are stored by the gateway, not the end user.",
+    "A static key identifies the caller, not a user: don't use it to reach per-user data."
+  ],
+  "covers": [
+    "MCP Non-OAuth Authentication"
+  ]
+}

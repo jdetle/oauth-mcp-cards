@@ -1,0 +1,56 @@
+{
+  "id": "learning-passthrough",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: OAuth Passthrough",
+  "flowLabel": "OAuth passthrough",
+  "text": "The user's MCP client already holds a token issued for the MCP server. It calls through the company's MCP gateway (the Application), which only authenticates and routes.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's tickets",
+    "requiredScope": "tickets.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "passthrough"
+  ],
+  "tokens": {
+    "userToken": {
+      "subject": "user:alex",
+      "subjectType": "user",
+      "audience": "mcp",
+      "scope": [
+        "tickets.read"
+      ],
+      "expiresInMin": 60
+    }
+  },
+  "holders": {
+    "client": [
+      "userToken"
+    ],
+    "application": [
+      "cachedToken"
+    ]
+  },
+  "hands": {
+    "client": [
+      "client.send"
+    ],
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.jwt_sign",
+      "app.cached"
+    ]
+  },
+  "teaches": [
+    "Passthrough is only correct when the token's audience is already the upstream MCP server.",
+    "Forwarding a token that was issued to the gateway is the OBO trap; forwarding one issued to the MCP server is passthrough.",
+    "The MCP server still validates audience, scope and expiry itself."
+  ],
+  "covers": [
+    "MCP OAuth Passthrough"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "assess-archive",
+  "order": 33,
+  "phase": "assessment",
+  "title": "Assessment: Archive",
+  "text": "A nightly job archives last month's reports from the MCP server to cold storage.",
+  "userPresent": false,
+  "request": {
+    "action": "Export last month's reports",
+    "requiredScope": "reports.read",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "jag"
+  ],
+  "tells": "No user; batch; service identity.",
+  "covers": [
+    "JWT Authorization Grant (rules doc)"
+  ]
+}

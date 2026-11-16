@@ -1,0 +1,22 @@
+{
+  "id": "assess-ops-dashboard",
+  "order": 35,
+  "phase": "assessment",
+  "title": "Assessment: Ops Dashboard",
+  "text": "An internal dashboard, used only by the ops team, reads aggregate usage from the MCP server.",
+  "userPresent": true,
+  "request": {
+    "action": "Read aggregate usage",
+    "requiredScope": "usage.read",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "jag",
+    "obo"
+  ],
+  "tells": "Ambiguous: is a user present or is it a service?",
+  "discussion": "JAG for aggregate data; OBO if the dashboard shows per-user data. Both are accepted here; discuss which you'd ship.",
+  "covers": [
+    "JWT Authorization Grant (rules doc)"
+  ]
+}

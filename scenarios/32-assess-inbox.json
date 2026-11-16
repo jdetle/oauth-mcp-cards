@@ -1,0 +1,21 @@
+{
+  "id": "assess-inbox",
+  "order": 32,
+  "phase": "assessment",
+  "title": "Assessment: Inbox",
+  "text": "A user clicks \"Summarise my inbox\" and the app asks the MCP server to fetch messages.",
+  "userPresent": true,
+  "request": {
+    "action": "Fetch the user's messages",
+    "requiredScope": "mail.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "obo"
+  ],
+  "tells": "User present; user-scoped data.",
+  "covers": [
+    "MCP OBO Auth"
+  ]
+}

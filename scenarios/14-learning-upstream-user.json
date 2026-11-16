@@ -1,0 +1,57 @@
+{
+  "id": "learning-upstream-user",
+  "order": 14,
+  "phase": "learning",
+  "title": "Learning: Per-User Upstream Credentials",
+  "flowLabel": "Per-user upstream credential",
+  "text": "Each engineer has connected their own GitHub account to the company's MCP gateway. A user asks to list their open pull requests through the GitHub MCP server, which knows nothing about your IdP.",
+  "userPresent": true,
+  "request": {
+    "action": "List my open pull requests",
+    "requiredScope": "repo.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "upstream"
+  ],
+  "holders": {
+    "client": [
+      "userToken"
+    ],
+    "application": []
+  },
+  "idpAudiences": [],
+  "apiKeys": [
+    {
+      "keyId": "ghu_...a1ex",
+      "owner": "user:alex",
+      "scopes": [
+        "repo.*"
+      ]
+    },
+    {
+      "keyId": "ghp_...adm1",
+      "owner": "shared-admin",
+      "scopes": [
+        "*"
+      ]
+    }
+  ],
+  "hands": {
+    "application": [
+      "app.upstream_user",
+      "app.upstream_shared",
+      "app.forward",
+      "app.exchange"
+    ]
+  },
+  "teaches": [
+    "When the upstream server doesn't trust your IdP, no exchange can help: the gateway needs a credential the upstream already accepts.",
+    "Store one credential per user and pick the one for the user who is asking.",
+    "A shared admin credential erases who did what and gives everyone admin's reach."
+  ],
+  "covers": [
+    "MCP Per-User and Per-Key Upstream Credentials"
+  ]
+}

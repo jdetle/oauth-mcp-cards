@@ -1,0 +1,43 @@
+{
+  "id": "learning-zerotrust",
+  "order": 18,
+  "phase": "learning",
+  "title": "Learning: Zero Trust JWT Signer",
+  "flowLabel": "Zero Trust: gateway-signed JWT",
+  "text": "Users sign in to the company's MCP gateway with SSO. The internal MCP servers behind it never talk to the IdP; they trust short-lived JWTs signed by the gateway, whose public keys they fetch from the gateway's JWKS.",
+  "userPresent": true,
+  "request": {
+    "action": "Read my HR profile",
+    "requiredScope": "profile.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "zerotrust"
+  ],
+  "trustsGateway": true,
+  "idpAudiences": [],
+  "holders": {
+    "client": [
+      "userToken"
+    ],
+    "application": []
+  },
+  "hands": {
+    "application": [
+      "app.jwt_sign",
+      "app.jwt_none",
+      "app.forward",
+      "app.exchange",
+      "app.selfmint"
+    ]
+  },
+  "teaches": [
+    "The gateway can issue credentials here only because each MCP server is configured to trust its key. That registration is the difference from Warm-up 3.",
+    "Every call carries a fresh, signed, audience-bound statement of who the user is; nothing is trusted because of where it came from on the network.",
+    "Unsigned (alg none) JWTs prove nothing."
+  ],
+  "covers": [
+    "MCP Zero Trust Auth (JWT Signer)"
+  ]
+}

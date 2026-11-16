@@ -1,0 +1,21 @@
+{
+  "id": "assess-monitoring",
+  "order": 31,
+  "phase": "assessment",
+  "title": "Assessment: Monitoring",
+  "text": "The app's monitoring service calls the MCP server every five minutes for health metrics.",
+  "userPresent": false,
+  "request": {
+    "action": "Read health metrics",
+    "requiredScope": "metrics.read",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "jag"
+  ],
+  "tells": "No user; service identity; recurring.",
+  "discussion": "If the metrics endpoint is public, no auth at all may be the right answer. Discuss: what does the endpoint reveal?",
+  "covers": [
+    "JWT Authorization Grant (rules doc)"
+  ]
+}

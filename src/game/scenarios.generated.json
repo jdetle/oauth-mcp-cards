@@ -1,0 +1,1178 @@
+[
+ {
+  "id": "warmup-1-ticket",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: The Ticket",
+  "flowLabel": "How a token works",
+  "text": "The Client asks the IdP for a token to read the user's calendar and hands it to the Application. Then the Client tries to use the same slip to write to the calendar.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's calendar",
+   "requiredScope": "calendar.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "beats": [
+   {
+    "starter": "client"
+   },
+   {
+    "starter": "client"
+   }
+  ],
+  "hands": {
+   "client": [
+    {
+     "type": "token_request",
+     "audience": "application",
+     "scope": [
+      "calendar.read"
+     ],
+     "pkce": true,
+     "scripted": true,
+     "beat": 0,
+     "label": "Ask the IdP for a token: subject = the user, audience = Application, scope = calendar.read"
+    },
+    {
+     "type": "request",
+     "to": "application",
+     "attach": "latest",
+     "scripted": true,
+     "beat": 0,
+     "label": "Hand the slip to the Application and ask to read the calendar"
+    },
+    {
+     "type": "request",
+     "to": "application",
+     "attach": "latest",
+     "scripted": true,
+     "beat": 1,
+     "request": {
+      "action": "Write to the user's calendar",
+      "requiredScope": "calendar.write",
+      "userScoped": true,
+      "user": "user:alex"
+     },
+     "label": "Use the same slip to write to the calendar"
+    }
+   ],
+   "application": [
+    "app.accept",
+    "app.reject"
+   ],
+   "idp": [
+    "idp.issue",
+    "idp.reject"
+   ],
+   "mcp": []
+  },
+  "teaches": [
+   "A token is a ticket with a name (subject), a venue (audience) and a seat section (scope).",
+   "Scope is what you may do. calendar.read does not cover a write."
+  ],
+  "covers": [
+   "Gateway Auth Reference"
+  ]
+ },
+ {
+  "id": "warmup-2-wrong-door",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: The Wrong Door",
+  "flowLabel": "Audience",
+  "text": "The Client takes the same slip (audience = Application) and hands it straight to the MCP Server.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's calendar",
+   "requiredScope": "calendar.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "holders": {
+   "client": [
+    "userToken"
+   ],
+   "application": []
+  },
+  "hands": {
+   "client": [
+    {
+     "type": "request",
+     "to": "mcp",
+     "attach": "userToken",
+     "scripted": true,
+     "label": "Take the slip (audience = Application) straight to the MCP Server"
+    }
+   ],
+   "application": [],
+   "idp": [],
+   "mcp": [
+    "mcp.accept",
+    "mcp.reject",
+    "mcp.validate_audience",
+    "mcp.validate_scope"
+   ]
+  },
+  "teaches": [
+   "Audience is who the token is for. A valid token at the wrong door is still invalid."
+  ],
+  "covers": [
+   "Gateway Auth Reference"
+  ]
+ },
+ {
+  "id": "warmup-3-who-mints",
+  "order": 3,
+  "phase": "warmup",
+  "title": "Warm-up 3: Who Mints",
+  "flowLabel": "Issuers",
+  "text": "The Application writes its own token slip for the MCP Server. The MCP Server can ask the IdP to confirm it.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's calendar",
+   "requiredScope": "calendar.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "beats": [
+   {
+    "starter": "application"
+   }
+  ],
+  "hands": {
+   "client": [],
+   "application": [
+    {
+     "type": "selfmint",
+     "audience": "mcp",
+     "scope": [
+      "calendar.read"
+     ],
+     "scripted": true,
+     "label": "Write your own token slip for the MCP Server"
+    }
+   ],
+   "idp": [
+    {
+     "type": "issue",
+     "label": "Confirm: yes, I minted this"
+    },
+    "idp.reject"
+   ],
+   "mcp": [
+    "mcp.accept",
+    "mcp.reject",
+    "mcp.introspect",
+    "mcp.validate_audience",
+    "mcp.validate_scope"
+   ]
+  },
+  "teaches": [
+   "Only the IdP mints tokens. Everyone else carries or validates them."
+  ],
+  "covers": [
+   "Gateway Auth Reference"
+  ]
+ },
+ {
+  "id": "learning-obo",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: On-Behalf-Of",
+  "flowLabel": "On-Behalf-Of (OBO)",
+  "text": "A user asks the app to read their calendar through the MCP server.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's calendar",
+   "requiredScope": "calendar.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "obo"
+  ],
+  "teaches": [
+   "A token is addressed to a specific audience and should not be forwarded across a trust boundary.",
+   "The Application must exchange, not relay.",
+   "The IdP is the only party that can mint a token for a new audience, and it does so only within the scope the user already consented to.",
+   "The MCP Server is responsible for validating audience and scope, not trusting the caller."
+  ],
+  "covers": [
+   "MCP OBO Auth"
+  ]
+ },
+ {
+  "id": "learning-jag",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: JWT Authorization Grant",
+  "flowLabel": "JWT Authorization Grant (JAG)",
+  "text": "A nightly batch job in the app needs to pull reports from the MCP server. No user is logged in.",
+  "userPresent": false,
+  "request": {
+   "action": "Pull last night's reports",
+   "requiredScope": "reports.read",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "jag"
+  ],
+  "tells": "The Client has no user token to hand over.",
+  "teaches": [
+   "Not every flow starts with a user; service-to-service access uses the Application's own identity.",
+   "A signed assertion proves identity without a shared secret crossing the wire.",
+   "The IdP validates signature, audience and expiry, not user consent.",
+   "A token whose subject is an application must not be used to reach user-scoped data."
+  ],
+  "discussion": "This round is the service-identity JWT grant (RFC 7523 style: the Application signs its own assertion). It is not the same as ID-JAG, which carries a user's identity across apps; see the ID-JAG round.",
+  "covers": [
+   "JWT Authorization Grant (rules doc)"
+  ]
+ },
+ {
+  "id": "learning-mcp-oauth",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: MCP OAuth",
+  "flowLabel": "MCP OAuth (authorization code + PKCE)",
+  "text": "A developer adds the company's MCP server to their AI assistant (the MCP client). The server answers 401 and points to its authorization server. The Application sits this one out: the MCP client talks to the MCP server directly.",
+  "userPresent": true,
+  "request": {
+   "action": "Search the user's documents",
+   "requiredScope": "docs.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "oauth"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "idpAudiences": [
+   "mcp"
+  ],
+  "hands": {
+   "client": [
+    {
+     "type": "token_request",
+     "audience": "mcp",
+     "scope": [
+      "docs.read"
+     ],
+     "pkce": true,
+     "label": "Run the authorization code flow with PKCE, resource = MCP Server, scope docs.read"
+    },
+    {
+     "type": "token_request",
+     "audience": "mcp",
+     "scope": [
+      "docs.read"
+     ],
+     "pkce": false,
+     "trap": true,
+     "label": "Run the authorization code flow without PKCE (it's only a desktop app)"
+    },
+    {
+     "type": "request",
+     "to": "mcp",
+     "attach": "latest",
+     "label": "Call the MCP Server with the token you were issued"
+    }
+   ],
+   "application": [],
+   "idp": [
+    "idp.issue",
+    "idp.reject"
+   ],
+   "mcp": [
+    "mcp.accept",
+    "mcp.reject",
+    "mcp.validate_audience",
+    "mcp.validate_scope"
+   ]
+  },
+  "teaches": [
+   "In MCP OAuth the MCP client is the OAuth client: it discovers the authorization server from the MCP server's 401 / protected-resource metadata.",
+   "The client asks for a token for this specific MCP server (resource indicator), so the audience is the MCP server.",
+   "Public clients must use PKCE."
+  ],
+  "covers": [
+   "MCP OAuth"
+  ]
+ },
+ {
+  "id": "learning-passthrough",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: OAuth Passthrough",
+  "flowLabel": "OAuth passthrough",
+  "text": "The user's MCP client already holds a token issued for the MCP server. It calls through the company's MCP gateway (the Application), which only authenticates and routes.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's tickets",
+   "requiredScope": "tickets.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "passthrough"
+  ],
+  "tokens": {
+   "userToken": {
+    "subject": "user:alex",
+    "subjectType": "user",
+    "audience": "mcp",
+    "scope": [
+     "tickets.read"
+    ],
+    "expiresInMin": 60
+   }
+  },
+  "holders": {
+   "client": [
+    "userToken"
+   ],
+   "application": [
+    "cachedToken"
+   ]
+  },
+  "hands": {
+   "client": [
+    "client.send"
+   ],
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.jwt_sign",
+    "app.cached"
+   ]
+  },
+  "teaches": [
+   "Passthrough is only correct when the token's audience is already the upstream MCP server.",
+   "Forwarding a token that was issued to the gateway is the OBO trap; forwarding one issued to the MCP server is passthrough.",
+   "The MCP server still validates audience, scope and expiry itself."
+  ],
+  "covers": [
+   "MCP OAuth Passthrough"
+  ]
+ },
+ {
+  "id": "learning-upstream-user",
+  "order": 14,
+  "phase": "learning",
+  "title": "Learning: Per-User Upstream Credentials",
+  "flowLabel": "Per-user upstream credential",
+  "text": "Each engineer has connected their own GitHub account to the company's MCP gateway. A user asks to list their open pull requests through the GitHub MCP server, which knows nothing about your IdP.",
+  "userPresent": true,
+  "request": {
+   "action": "List my open pull requests",
+   "requiredScope": "repo.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "upstream"
+  ],
+  "holders": {
+   "client": [
+    "userToken"
+   ],
+   "application": []
+  },
+  "idpAudiences": [],
+  "apiKeys": [
+   {
+    "keyId": "ghu_...a1ex",
+    "owner": "user:alex",
+    "scopes": [
+     "repo.*"
+    ]
+   },
+   {
+    "keyId": "ghp_...adm1",
+    "owner": "shared-admin",
+    "scopes": [
+     "*"
+    ]
+   }
+  ],
+  "hands": {
+   "application": [
+    "app.upstream_user",
+    "app.upstream_shared",
+    "app.forward",
+    "app.exchange"
+   ]
+  },
+  "teaches": [
+   "When the upstream server doesn't trust your IdP, no exchange can help: the gateway needs a credential the upstream already accepts.",
+   "Store one credential per user and pick the one for the user who is asking.",
+   "A shared admin credential erases who did what and gives everyone admin's reach."
+  ],
+  "covers": [
+   "MCP Per-User and Per-Key Upstream Credentials"
+  ]
+ },
+ {
+  "id": "learning-upstream-key",
+  "order": 15,
+  "phase": "learning",
+  "title": "Learning: Per-Key Upstream Credentials",
+  "flowLabel": "Per-key upstream credential",
+  "text": "Team A's service calls the MCP gateway with its own virtual key. The gateway maps that key to Team A's credential for the issue-tracker MCP server. No person is involved.",
+  "userPresent": false,
+  "request": {
+   "action": "Create a ticket in Team A's project",
+   "requiredScope": "issues.write",
+   "userScoped": true,
+   "user": "key:team-a"
+  },
+  "expectedFlows": [
+   "upstream"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "idpAudiences": [],
+  "apiKeys": [
+   {
+    "keyId": "trk_...teamA",
+    "owner": "key:team-a",
+    "scopes": [
+     "issues.*"
+    ]
+   },
+   {
+    "keyId": "trk_...adm1",
+    "owner": "shared-admin",
+    "scopes": [
+     "*"
+    ]
+   }
+  ],
+  "hands": {
+   "application": [
+    "app.upstream_user",
+    "app.upstream_shared",
+    "app.assertion",
+    "app.forward"
+   ]
+  },
+  "tells": "The caller is a service holding a virtual key, not a signed-in user.",
+  "teaches": [
+   "Per-key credentials do for services what per-user credentials do for people: each caller's upstream access stays separate.",
+   "Revoking Team A's virtual key cuts off only Team A."
+  ],
+  "covers": [
+   "MCP Per-User and Per-Key Upstream Credentials"
+  ]
+ },
+ {
+  "id": "learning-idjag",
+  "order": 16,
+  "phase": "learning",
+  "title": "Learning: ID-JAG (Cross App Access)",
+  "flowLabel": "ID-JAG (Identity Assertion JWT Authorization Grant, e.g. Okta)",
+  "text": "Your company signs in with Okta. A user in the internal AI assistant asks it to pull their open tickets from a SaaS tool's MCP server. The SaaS tool's authorization server trusts your Okta for cross-app access.",
+  "userPresent": true,
+  "request": {
+   "action": "Pull my open tickets",
+   "requiredScope": "tickets.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "idjag"
+  ],
+  "tokens": {
+   "userToken": {
+    "kind": "id",
+    "subject": "user:alex",
+    "subjectType": "user",
+    "audience": "application",
+    "scope": [
+     "tickets.read"
+    ],
+    "expiresInMin": 60
+   }
+  },
+  "holders": {
+   "client": [
+    "userToken"
+   ],
+   "application": []
+  },
+  "hands": {
+   "application": [
+    "app.idjag",
+    "app.exchange",
+    "app.forward",
+    "app.assertion"
+   ]
+  },
+  "teaches": [
+   "ID-JAG lets an enterprise IdP vouch for a user to another app's authorization server, with admin policy instead of a consent screen.",
+   "The Application exchanges the user's identity at the IdP for an ID-JAG addressed to the resource's authorization server, then trades that for an access token there.",
+   "An ID token is never sent to an API as an access token."
+  ],
+  "discussion": "Real ID-JAG has one more hop than this table shows: the IdP issues the ID-JAG (token exchange), and the Application presents it to the resource's own authorization server (JWT bearer grant) to get an access token. Here the MCP Server seat plays that authorization server too.",
+  "covers": [
+   "MCP ID-JAG Auth (Okta)"
+  ]
+ },
+ {
+  "id": "learning-sigv4",
+  "order": 17,
+  "phase": "learning",
+  "title": "Learning: AWS SigV4",
+  "flowLabel": "AWS SigV4 request signing",
+  "text": "An agent running in AWS Lambda calls an MCP server deployed behind Amazon API Gateway with IAM authorization. No user is involved.",
+  "userPresent": false,
+  "request": {
+   "action": "Query warehouse inventory",
+   "requiredScope": "inventory.read",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "sigv4"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "hands": {
+   "application": [
+    "app.sigv4",
+    "app.sigv4_replay",
+    "app.aws_secret",
+    "app.assertion",
+    "app.forward"
+   ]
+  },
+  "teaches": [
+   "With SigV4 the secret never crosses the wire: every request is signed with it.",
+   "Signatures cover the exact request and a timestamp, so they can't be replayed later or reused for another service.",
+   "Use short-lived role credentials, not long-term access keys."
+  ],
+  "covers": [
+   "MCP - AWS SigV4 Auth"
+  ]
+ },
+ {
+  "id": "learning-zerotrust",
+  "order": 18,
+  "phase": "learning",
+  "title": "Learning: Zero Trust JWT Signer",
+  "flowLabel": "Zero Trust: gateway-signed JWT",
+  "text": "Users sign in to the company's MCP gateway with SSO. The internal MCP servers behind it never talk to the IdP; they trust short-lived JWTs signed by the gateway, whose public keys they fetch from the gateway's JWKS.",
+  "userPresent": true,
+  "request": {
+   "action": "Read my HR profile",
+   "requiredScope": "profile.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "zerotrust"
+  ],
+  "trustsGateway": true,
+  "idpAudiences": [],
+  "holders": {
+   "client": [
+    "userToken"
+   ],
+   "application": []
+  },
+  "hands": {
+   "application": [
+    "app.jwt_sign",
+    "app.jwt_none",
+    "app.forward",
+    "app.exchange",
+    "app.selfmint"
+   ]
+  },
+  "teaches": [
+   "The gateway can issue credentials here only because each MCP server is configured to trust its key. That registration is the difference from Warm-up 3.",
+   "Every call carries a fresh, signed, audience-bound statement of who the user is; nothing is trusted because of where it came from on the network.",
+   "Unsigned (alg none) JWTs prove nothing."
+  ],
+  "covers": [
+   "MCP Zero Trust Auth (JWT Signer)"
+  ]
+ },
+ {
+  "id": "learning-nonoauth",
+  "order": 19,
+  "phase": "learning",
+  "title": "Learning: Non-OAuth (API key)",
+  "flowLabel": "Non-OAuth: static API key",
+  "text": "An internal build pipeline calls the team's docs-search MCP server. That server has no OAuth support; it expects a static API key.",
+  "userPresent": false,
+  "request": {
+   "action": "Search the docs",
+   "requiredScope": "docs.search",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "apikey"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "apiKeys": [
+   {
+    "keyId": "sk_...c9f2",
+    "owner": "build-pipeline",
+    "scopes": [
+     "docs.*"
+    ]
+   }
+  ],
+  "hands": {
+   "application": [
+    "app.api_key",
+    "app.api_key_query",
+    "app.forward",
+    "app.assertion"
+   ]
+  },
+  "teaches": [
+   "Not every MCP server speaks OAuth. A static key is acceptable for simple, internal, service-to-service calls.",
+   "Keys go in a header, never the URL, and are stored by the gateway, not the end user.",
+   "A static key identifies the caller, not a user: don't use it to reach per-user data."
+  ],
+  "covers": [
+   "MCP Non-OAuth Authentication"
+  ]
+ },
+ {
+  "id": "assess-support-agent",
+  "order": 30,
+  "phase": "assessment",
+  "title": "Assessment: Support Agent",
+  "text": "A support agent in the admin console asks the MCP server to pull a customer's order history.",
+  "userPresent": true,
+  "request": {
+   "action": "Pull a customer's order history",
+   "requiredScope": "orders.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "obo"
+  ],
+  "tells": "User present; the Application acts for the user; the call crosses to the MCP Server.",
+  "covers": [
+   "MCP OBO Auth"
+  ]
+ },
+ {
+  "id": "assess-monitoring",
+  "order": 31,
+  "phase": "assessment",
+  "title": "Assessment: Monitoring",
+  "text": "The app's monitoring service calls the MCP server every five minutes for health metrics.",
+  "userPresent": false,
+  "request": {
+   "action": "Read health metrics",
+   "requiredScope": "metrics.read",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "jag"
+  ],
+  "tells": "No user; service identity; recurring.",
+  "discussion": "If the metrics endpoint is public, no auth at all may be the right answer. Discuss: what does the endpoint reveal?",
+  "covers": [
+   "JWT Authorization Grant (rules doc)"
+  ]
+ },
+ {
+  "id": "assess-inbox",
+  "order": 32,
+  "phase": "assessment",
+  "title": "Assessment: Inbox",
+  "text": "A user clicks \"Summarise my inbox\" and the app asks the MCP server to fetch messages.",
+  "userPresent": true,
+  "request": {
+   "action": "Fetch the user's messages",
+   "requiredScope": "mail.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "obo"
+  ],
+  "tells": "User present; user-scoped data.",
+  "covers": [
+   "MCP OBO Auth"
+  ]
+ },
+ {
+  "id": "assess-archive",
+  "order": 33,
+  "phase": "assessment",
+  "title": "Assessment: Archive",
+  "text": "A nightly job archives last month's reports from the MCP server to cold storage.",
+  "userPresent": false,
+  "request": {
+   "action": "Export last month's reports",
+   "requiredScope": "reports.read",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "jag"
+  ],
+  "tells": "No user; batch; service identity.",
+  "covers": [
+   "JWT Authorization Grant (rules doc)"
+  ]
+ },
+ {
+  "id": "assess-stale-session",
+  "order": 34,
+  "phase": "assessment",
+  "title": "Assessment: Stale Session",
+  "text": "A user's session expired an hour ago, but the app still has their old token and wants to finish a queued export.",
+  "userPresent": false,
+  "request": {
+   "action": "Export the user's data",
+   "requiredScope": "export.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "reauth"
+  ],
+  "tells": "User absent now; stale token.",
+  "discussion": "Neither flow. The trap is that the cached token looks like it would work. Re-authenticate or reject.",
+  "holders": {
+   "client": [],
+   "application": [
+    "cachedToken"
+   ]
+  },
+  "covers": []
+ },
+ {
+  "id": "assess-ops-dashboard",
+  "order": 35,
+  "phase": "assessment",
+  "title": "Assessment: Ops Dashboard",
+  "text": "An internal dashboard, used only by the ops team, reads aggregate usage from the MCP server.",
+  "userPresent": true,
+  "request": {
+   "action": "Read aggregate usage",
+   "requiredScope": "usage.read",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "jag",
+   "obo"
+  ],
+  "tells": "Ambiguous: is a user present or is it a service?",
+  "discussion": "JAG for aggregate data; OBO if the dashboard shows per-user data. Both are accepted here; discuss which you'd ship.",
+  "covers": [
+   "JWT Authorization Grant (rules doc)"
+  ]
+ },
+ {
+  "id": "assess-partner-webhook",
+  "order": 36,
+  "phase": "assessment",
+  "title": "Assessment: Partner Webhook",
+  "text": "The app receives a webhook from a partner and needs the MCP server to update a shared record.",
+  "userPresent": false,
+  "request": {
+   "action": "Update a shared record",
+   "requiredScope": "records.write",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "jag"
+  ],
+  "tells": "No user; partner identity; trust boundary crossing.",
+  "discussion": "JAG, ideally with the partner's own signed assertion so the MCP server knows the change came from the partner, not just from your app.",
+  "covers": [
+   "JWT Authorization Grant (rules doc)"
+  ]
+ },
+ {
+  "id": "assess-plugin-30-days",
+  "order": 37,
+  "phase": "assessment",
+  "title": "Assessment: Plugin 30 Days",
+  "text": "A user authorises a third-party plugin to act on their behalf inside the MCP server for the next 30 days.",
+  "userPresent": true,
+  "request": {
+   "action": "Act on the user's notes",
+   "requiredScope": "notes.write",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "obo"
+  ],
+  "tells": "User present; long-lived delegation; third party.",
+  "discussion": "OBO with a refresh token. Discuss consent scope: what exactly did the user agree to for 30 days, and how do they revoke it?",
+  "refreshToken": true,
+  "covers": [
+   "MCP OBO Auth"
+  ]
+ },
+ {
+  "id": "assess-first-connection",
+  "order": 40,
+  "phase": "assessment",
+  "title": "Assessment: First Connection",
+  "text": "A developer's AI assistant connects to the company's MCP server for the first time. It has no token yet, and the server replies 401 with its authorization server's address.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's documents",
+   "requiredScope": "docs.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "oauth"
+  ],
+  "tells": "The MCP client itself must get a token; nobody can do it for it.",
+  "covers": [
+   "MCP OAuth"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "idpAudiences": [
+   "mcp"
+  ],
+  "hands": {
+   "client": [
+    {
+     "type": "token_request",
+     "audience": "mcp",
+     "scope": [
+      "docs.read"
+     ],
+     "pkce": true,
+     "label": "Run the authorization code flow with PKCE, resource = MCP Server"
+    },
+    {
+     "type": "token_request",
+     "audience": "mcp",
+     "scope": [
+      "docs.read"
+     ],
+     "pkce": false,
+     "trap": true,
+     "label": "Run the authorization code flow without PKCE"
+    },
+    {
+     "type": "request",
+     "to": "mcp",
+     "attach": "latest",
+     "label": "Call the MCP Server with your token"
+    },
+    "client.send_no_token"
+   ],
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth"
+   ],
+   "idp": [
+    "idp.issue",
+    "idp.reject"
+   ]
+  }
+ },
+ {
+  "id": "assess-gateway-routing",
+  "order": 41,
+  "phase": "assessment",
+  "title": "Assessment: Gateway Routing",
+  "text": "A request reaches the MCP gateway carrying a token the IdP issued for the MCP server itself (audience = MCP Server). The gateway just routes.",
+  "userPresent": true,
+  "request": {
+   "action": "Read the user's tickets",
+   "requiredScope": "tickets.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "passthrough"
+  ],
+  "tells": "The token is already addressed to the MCP server.",
+  "covers": [
+   "MCP OAuth Passthrough"
+  ],
+  "tokens": {
+   "userToken": {
+    "subject": "user:alex",
+    "subjectType": "user",
+    "audience": "mcp",
+    "scope": [
+     "tickets.read"
+    ],
+    "expiresInMin": 60
+   }
+  },
+  "hands": {
+   "client": [
+    "client.send"
+   ],
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth"
+   ]
+  }
+ },
+ {
+  "id": "assess-github-prs",
+  "order": 42,
+  "phase": "assessment",
+  "title": "Assessment: Github Prs",
+  "text": "A user asks the assistant to open a pull request through the GitHub MCP server. Each user has linked their own GitHub account to the gateway.",
+  "userPresent": true,
+  "request": {
+   "action": "Open a pull request as the user",
+   "requiredScope": "repo.write",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "upstream"
+  ],
+  "tells": "Upstream doesn't trust your IdP; per-user credential exists.",
+  "covers": [
+   "MCP Per-User and Per-Key Upstream Credentials"
+  ],
+  "idpAudiences": [],
+  "apiKeys": [
+   {
+    "keyId": "ghu_...a1ex",
+    "owner": "user:alex",
+    "scopes": [
+     "repo.*"
+    ]
+   },
+   {
+    "keyId": "ghp_...adm1",
+    "owner": "shared-admin",
+    "scopes": [
+     "*"
+    ]
+   }
+  ],
+  "hands": {
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth",
+    "app.upstream_shared"
+   ]
+  }
+ },
+ {
+  "id": "assess-lambda-iam",
+  "order": 43,
+  "phase": "assessment",
+  "title": "Assessment: Lambda Iam",
+  "text": "A scheduled Lambda function calls an MCP server hosted behind API Gateway with IAM auth.",
+  "userPresent": false,
+  "request": {
+   "action": "Read inventory",
+   "requiredScope": "inventory.read",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "sigv4"
+  ],
+  "tells": "No user; AWS IAM in front of the server.",
+  "covers": [
+   "MCP - AWS SigV4 Auth"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "hands": {
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth",
+    "app.aws_secret"
+   ]
+  }
+ },
+ {
+  "id": "assess-legacy-key",
+  "order": 44,
+  "phase": "assessment",
+  "title": "Assessment: Legacy Key",
+  "text": "A cron job inside the VPC calls a legacy internal MCP server that only understands an X-API-Key header.",
+  "userPresent": false,
+  "request": {
+   "action": "Rebuild the search index",
+   "requiredScope": "index.write",
+   "userScoped": false
+  },
+  "expectedFlows": [
+   "apikey"
+  ],
+  "tells": "No user; the server has no OAuth at all.",
+  "covers": [
+   "MCP Non-OAuth Authentication"
+  ],
+  "holders": {
+   "client": [],
+   "application": []
+  },
+  "apiKeys": [
+   {
+    "keyId": "sk_...7d1e",
+    "owner": "cron",
+    "scopes": [
+     "index.*"
+    ]
+   }
+  ],
+  "hands": {
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth",
+    "app.api_key_query"
+   ]
+  }
+ },
+ {
+  "id": "assess-internal-jwks",
+  "order": 45,
+  "phase": "assessment",
+  "title": "Assessment: Internal Jwks",
+  "text": "A signed-in user asks for their payslips. The payroll MCP server sits behind the company gateway and only accepts JWTs signed by the gateway's key.",
+  "userPresent": true,
+  "request": {
+   "action": "Fetch my payslips",
+   "requiredScope": "payroll.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "zerotrust"
+  ],
+  "tells": "User present; the server trusts the gateway's JWKS, not the IdP.",
+  "covers": [
+   "MCP Zero Trust Auth (JWT Signer)"
+  ],
+  "trustsGateway": true,
+  "idpAudiences": [],
+  "hands": {
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth",
+    "app.jwt_none"
+   ]
+  }
+ },
+ {
+  "id": "assess-okta-saas",
+  "order": 46,
+  "phase": "assessment",
+  "title": "Assessment: Okta Saas",
+  "text": "In an Okta-managed company, a user asks the assistant to fetch their calendar from a SaaS MCP server whose authorization server accepts identity assertions from your Okta.",
+  "userPresent": true,
+  "request": {
+   "action": "Fetch the user's calendar",
+   "requiredScope": "calendar.read",
+   "userScoped": true,
+   "user": "user:alex"
+  },
+  "expectedFlows": [
+   "idjag"
+  ],
+  "tells": "User present; enterprise IdP trusted by the resource's authorization server.",
+  "covers": [
+   "MCP ID-JAG Auth (Okta)"
+  ],
+  "tokens": {
+   "userToken": {
+    "kind": "id",
+    "subject": "user:alex",
+    "subjectType": "user",
+    "audience": "application",
+    "scope": [
+     "calendar.read"
+    ],
+    "expiresInMin": 60
+   }
+  },
+  "hands": {
+   "application": [
+    "app.forward",
+    "app.exchange",
+    "app.idjag",
+    "app.assertion",
+    "app.api_key",
+    "app.upstream_user",
+    "app.sigv4",
+    "app.jwt_sign",
+    "app.reauth"
+   ]
+  }
+ }
+]

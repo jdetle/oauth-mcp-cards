@@ -1,0 +1,46 @@
+{
+  "id": "warmup-2-wrong-door",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: The Wrong Door",
+  "flowLabel": "Audience",
+  "text": "The Client takes the same slip (audience = Application) and hands it straight to the MCP Server.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's calendar",
+    "requiredScope": "calendar.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "holders": {
+    "client": [
+      "userToken"
+    ],
+    "application": []
+  },
+  "hands": {
+    "client": [
+      {
+        "type": "request",
+        "to": "mcp",
+        "attach": "userToken",
+        "scripted": true,
+        "label": "Take the slip (audience = Application) straight to the MCP Server"
+      }
+    ],
+    "application": [],
+    "idp": [],
+    "mcp": [
+      "mcp.accept",
+      "mcp.reject",
+      "mcp.validate_audience",
+      "mcp.validate_scope"
+    ]
+  },
+  "teaches": [
+    "Audience is who the token is for. A valid token at the wrong door is still invalid."
+  ],
+  "covers": [
+    "Gateway Auth Reference"
+  ]
+}

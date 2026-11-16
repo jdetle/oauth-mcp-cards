@@ -1,0 +1,26 @@
+{
+  "id": "assess-stale-session",
+  "order": 34,
+  "phase": "assessment",
+  "title": "Assessment: Stale Session",
+  "text": "A user's session expired an hour ago, but the app still has their old token and wants to finish a queued export.",
+  "userPresent": false,
+  "request": {
+    "action": "Export the user's data",
+    "requiredScope": "export.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "reauth"
+  ],
+  "tells": "User absent now; stale token.",
+  "discussion": "Neither flow. The trap is that the cached token looks like it would work. Re-authenticate or reject.",
+  "holders": {
+    "client": [],
+    "application": [
+      "cachedToken"
+    ]
+  },
+  "covers": []
+}

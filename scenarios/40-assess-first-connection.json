@@ -1,0 +1,73 @@
+{
+  "id": "assess-first-connection",
+  "order": 40,
+  "phase": "assessment",
+  "title": "Assessment: First Connection",
+  "text": "A developer's AI assistant connects to the company's MCP server for the first time. It has no token yet, and the server replies 401 with its authorization server's address.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's documents",
+    "requiredScope": "docs.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "oauth"
+  ],
+  "tells": "The MCP client itself must get a token; nobody can do it for it.",
+  "covers": [
+    "MCP OAuth"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "idpAudiences": [
+    "mcp"
+  ],
+  "hands": {
+    "client": [
+      {
+        "type": "token_request",
+        "audience": "mcp",
+        "scope": [
+          "docs.read"
+        ],
+        "pkce": true,
+        "label": "Run the authorization code flow with PKCE, resource = MCP Server"
+      },
+      {
+        "type": "token_request",
+        "audience": "mcp",
+        "scope": [
+          "docs.read"
+        ],
+        "pkce": false,
+        "trap": true,
+        "label": "Run the authorization code flow without PKCE"
+      },
+      {
+        "type": "request",
+        "to": "mcp",
+        "attach": "latest",
+        "label": "Call the MCP Server with your token"
+      },
+      "client.send_no_token"
+    ],
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth"
+    ],
+    "idp": [
+      "idp.issue",
+      "idp.reject"
+    ]
+  }
+}

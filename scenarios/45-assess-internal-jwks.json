@@ -1,0 +1,37 @@
+{
+  "id": "assess-internal-jwks",
+  "order": 45,
+  "phase": "assessment",
+  "title": "Assessment: Internal Jwks",
+  "text": "A signed-in user asks for their payslips. The payroll MCP server sits behind the company gateway and only accepts JWTs signed by the gateway's key.",
+  "userPresent": true,
+  "request": {
+    "action": "Fetch my payslips",
+    "requiredScope": "payroll.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "zerotrust"
+  ],
+  "tells": "User present; the server trusts the gateway's JWKS, not the IdP.",
+  "covers": [
+    "MCP Zero Trust Auth (JWT Signer)"
+  ],
+  "trustsGateway": true,
+  "idpAudiences": [],
+  "hands": {
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth",
+      "app.jwt_none"
+    ]
+  }
+}

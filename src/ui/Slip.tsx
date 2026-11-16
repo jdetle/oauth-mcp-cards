@@ -1,0 +1,141 @@
+"use client";
+import { ROLE_NAMES, type Credential, type InFlight, type Role, type Token } from "../game/types.ts";
+
+const AUD_NAMES: Record<string, string> = { ...ROLE_NAMES, gateway: "Gateway" };
+const aud = (a: string) => AUD_NAMES[a] ?? a;
+
+function rel(ms: number, now: number) {
+  const m = Math.round((ms - now) / 60_000);
+  if (m >= 0) return `in ${m}m`;
+  return <span className="bad">expired {-m}m ago</span>;
+}
+
+const short = (s: string, n = 10) => (s.length > n ? `${s.slice(0, n)}…` : s || "(none)");
+
+function Fields({ rows }: { rows: [string, React.ReactNode][] }) {
+  return (
+    <dl>
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: "contents" }}>
+          <dt>{k}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function TokenSlip({ token, title }: { token: Token; title?: string }) {
+  const now = Date.now();
+  const kind = token.kind === "id" ? "ID token" : token.kind === "id_jag" ? "ID-JAG" : "Access token";
+  return (
+    <div className="slip" role="group" aria-label={`${kind} slip`}>
+      <div className="slip-title">
+        <span>{title ?? kind}</span>
+        {token.forged ? <span className="bad">hand-written</span> : null}
+      </div>
+      <Fields
+        rows={[
+          ["subject", `${token.subject}${token.subjectType === "app" ? " (app)" : ""}`],
+          ["audience", aud(token.audience)],
+          ["scope", token.scope.join(" ")],
+          ["expiry", rel(token.expiry, now)],
+          ["issuer", aud(token.issuer)],
+          ...(token.refreshable ? ([["refresh", "yes (long-lived delegation)"]] as [string, string][]) : []),
+        ]}
+      />
+    </div>
+  );
+}
+
+function CredentialSlip({ c }: { c: Credential }) {
+  const now = Date.now();
+  switch (c.type) {
+    case "bearer":
+      return <TokenSlip token={c.token} />;
+    case "api_key":
+      return (
+        <div className="slip">
+          <div className="slip-title">API key</div>
+          <Fields rows={[["key", c.key.keyId], ["owner", c.key.owner], ["sent in", c.key.placement === "query" ? <span className="bad">URL query string</span> : "Authorization header"]]} />
+        </div>
+      );
+    case "sigv4":
+      return (
+        <div className="slip">
+          <div className="slip-title">SigV4 signature</div>
+          <Fields rows={[["key id", c.sig.accessKeyId], ["scope", `${c.sig.region}/${c.sig.service}`], ["signed", rel(c.sig.timestamp + 5 * 60_000, now)], ["signature", short(c.sig.signature)]]} />
+        </div>
+      );
+    case "gateway_jwt":
+      return (
+        <div className="slip">
+          <div className="slip-title">Gateway JWT</div>
+          <Fields
+            rows={[
+              ["iss", c.jwt.iss], ["sub", c.jwt.sub], ["aud", aud(c.jwt.aud)], ["scope", c.jwt.scope.join(" ")],
+              ["expiry", rel(c.jwt.exp, now)], ["alg", c.jwt.alg === "none" ? <span className="bad">none</span> : c.jwt.alg], ["signature", short(c.jwt.signature)],
+            ]}
+          />
+        </div>
+      );
+    case "aws_secret_bearer":
+      return (
+        <div className="slip">
+          <div className="slip-title">Authorization header</div>
+          <Fields rows={[["value", <span className="bad">AWS secret access key</span>]]} />
+        </div>
+      );
+  }
+}
+
+export function InFlightSlip({ item }: { item: InFlight }) {
+  const now = Date.now();
+  const head = `${ROLE_NAMES[item.from as Role]} → ${ROLE_NAMES[item.to as Role]}`;
+  switch (item.kind) {
+    case "request":
+      return (
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="small">{head}: request “{item.request.action}” (needs <code>{item.request.requiredScope}</code>)</div>
+          {item.token ? <TokenSlip token={item.token} /> : <div className="slip">No token attached</div>}
+        </div>
+      );
+    case "token_request":
+      return (
+        <div className="slip">
+          <div className="slip-title">{head}: authorization request</div>
+          <Fields rows={[["resource", aud(item.audience)], ["scope", item.scope.join(" ")], ["PKCE", item.pkce ? "code challenge S256" : <span className="bad">none</span>]]} />
+        </div>
+      );
+    case "exchange":
+      return (
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="small">{head}: token exchange for <b>{item.requestedType === "id_jag" ? "an ID-JAG" : "an access token"}</b>, audience {aud(item.requestedAudience)}, scope <code>{item.requestedScope.join(" ")}</code></div>
+          {item.subjectToken ? <TokenSlip token={item.subjectToken} title="Subject token" /> : <div className="slip">No user token to exchange</div>}
+        </div>
+      );
+    case "assertion":
+      return (
+        <div className="slip">
+          <div className="slip-title">{head}: signed assertion (JWT)</div>
+          <Fields
+            rows={[
+              ["iss", item.assertion.iss], ["sub", item.assertion.sub], ["aud", aud(item.assertion.aud)],
+              ["scope", item.assertion.scope.join(" ")], ["expiry", rel(item.assertion.exp, now)], ["signature", short(item.assertion.signature)],
+            ]}
+          />
+        </div>
+      );
+    case "call":
+    case "introspect":
+      return (
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="small">
+            {head}: {item.kind === "introspect" ? "“Did you mint this?”" : <>call “{item.request.action}” (needs <code>{item.request.requiredScope}</code>{item.request.userScoped ? `, ${item.request.user ?? "a user"}'s data` : ""})</>}
+            {item.kind === "call" && item.confirmedByIdp ? " · IdP vouched for it" : ""}
+          </div>
+          {item.credential ? <CredentialSlip c={item.credential} /> : <div className="slip">No credential</div>}
+        </div>
+      );
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "learning-obo",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: On-Behalf-Of",
+  "flowLabel": "On-Behalf-Of (OBO)",
+  "text": "A user asks the app to read their calendar through the MCP server.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's calendar",
+    "requiredScope": "calendar.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "obo"
+  ],
+  "teaches": [
+    "A token is addressed to a specific audience and should not be forwarded across a trust boundary.",
+    "The Application must exchange, not relay.",
+    "The IdP is the only party that can mint a token for a new audience, and it does so only within the scope the user already consented to.",
+    "The MCP Server is responsible for validating audience and scope, not trusting the caller."
+  ],
+  "covers": [
+    "MCP OBO Auth"
+  ]
+}

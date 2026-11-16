@@ -1,0 +1,28 @@
+{
+  "id": "learning-jag",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: JWT Authorization Grant",
+  "flowLabel": "JWT Authorization Grant (JAG)",
+  "text": "A nightly batch job in the app needs to pull reports from the MCP server. No user is logged in.",
+  "userPresent": false,
+  "request": {
+    "action": "Pull last night's reports",
+    "requiredScope": "reports.read",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "jag"
+  ],
+  "tells": "The Client has no user token to hand over.",
+  "teaches": [
+    "Not every flow starts with a user; service-to-service access uses the Application's own identity.",
+    "A signed assertion proves identity without a shared secret crossing the wire.",
+    "The IdP validates signature, audience and expiry, not user consent.",
+    "A token whose subject is an application must not be used to reach user-scoped data."
+  ],
+  "discussion": "This round is the service-identity JWT grant (RFC 7523 style: the Application signs its own assertion). It is not the same as ID-JAG, which carries a user's identity across apps; see the ID-JAG round.",
+  "covers": [
+    "JWT Authorization Grant (rules doc)"
+  ]
+}

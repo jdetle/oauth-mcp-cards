@@ -1,0 +1,47 @@
+{
+  "id": "assess-legacy-key",
+  "order": 44,
+  "phase": "assessment",
+  "title": "Assessment: Legacy Key",
+  "text": "A cron job inside the VPC calls a legacy internal MCP server that only understands an X-API-Key header.",
+  "userPresent": false,
+  "request": {
+    "action": "Rebuild the search index",
+    "requiredScope": "index.write",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "apikey"
+  ],
+  "tells": "No user; the server has no OAuth at all.",
+  "covers": [
+    "MCP Non-OAuth Authentication"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "apiKeys": [
+    {
+      "keyId": "sk_...7d1e",
+      "owner": "cron",
+      "scopes": [
+        "index.*"
+      ]
+    }
+  ],
+  "hands": {
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth",
+      "app.api_key_query"
+    ]
+  }
+}

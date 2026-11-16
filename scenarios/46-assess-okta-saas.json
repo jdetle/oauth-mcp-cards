@@ -1,0 +1,46 @@
+{
+  "id": "assess-okta-saas",
+  "order": 46,
+  "phase": "assessment",
+  "title": "Assessment: Okta Saas",
+  "text": "In an Okta-managed company, a user asks the assistant to fetch their calendar from a SaaS MCP server whose authorization server accepts identity assertions from your Okta.",
+  "userPresent": true,
+  "request": {
+    "action": "Fetch the user's calendar",
+    "requiredScope": "calendar.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "idjag"
+  ],
+  "tells": "User present; enterprise IdP trusted by the resource's authorization server.",
+  "covers": [
+    "MCP ID-JAG Auth (Okta)"
+  ],
+  "tokens": {
+    "userToken": {
+      "kind": "id",
+      "subject": "user:alex",
+      "subjectType": "user",
+      "audience": "application",
+      "scope": [
+        "calendar.read"
+      ],
+      "expiresInMin": 60
+    }
+  },
+  "hands": {
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth"
+    ]
+  }
+}

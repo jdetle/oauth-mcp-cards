@@ -1,0 +1,80 @@
+{
+  "id": "warmup-1-ticket",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: The Ticket",
+  "flowLabel": "How a token works",
+  "text": "The Client asks the IdP for a token to read the user's calendar and hands it to the Application. Then the Client tries to use the same slip to write to the calendar.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's calendar",
+    "requiredScope": "calendar.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "beats": [
+    {
+      "starter": "client"
+    },
+    {
+      "starter": "client"
+    }
+  ],
+  "hands": {
+    "client": [
+      {
+        "type": "token_request",
+        "audience": "application",
+        "scope": [
+          "calendar.read"
+        ],
+        "pkce": true,
+        "scripted": true,
+        "beat": 0,
+        "label": "Ask the IdP for a token: subject = the user, audience = Application, scope = calendar.read"
+      },
+      {
+        "type": "request",
+        "to": "application",
+        "attach": "latest",
+        "scripted": true,
+        "beat": 0,
+        "label": "Hand the slip to the Application and ask to read the calendar"
+      },
+      {
+        "type": "request",
+        "to": "application",
+        "attach": "latest",
+        "scripted": true,
+        "beat": 1,
+        "request": {
+          "action": "Write to the user's calendar",
+          "requiredScope": "calendar.write",
+          "userScoped": true,
+          "user": "user:alex"
+        },
+        "label": "Use the same slip to write to the calendar"
+      }
+    ],
+    "application": [
+      "app.accept",
+      "app.reject"
+    ],
+    "idp": [
+      "idp.issue",
+      "idp.reject"
+    ],
+    "mcp": []
+  },
+  "teaches": [
+    "A token is a ticket with a name (subject), a venue (audience) and a seat section (scope).",
+    "Scope is what you may do. calendar.read does not cover a write."
+  ],
+  "covers": [
+    "Gateway Auth Reference"
+  ]
+}

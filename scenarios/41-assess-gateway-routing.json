@@ -1,0 +1,48 @@
+{
+  "id": "assess-gateway-routing",
+  "order": 41,
+  "phase": "assessment",
+  "title": "Assessment: Gateway Routing",
+  "text": "A request reaches the MCP gateway carrying a token the IdP issued for the MCP server itself (audience = MCP Server). The gateway just routes.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's tickets",
+    "requiredScope": "tickets.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "passthrough"
+  ],
+  "tells": "The token is already addressed to the MCP server.",
+  "covers": [
+    "MCP OAuth Passthrough"
+  ],
+  "tokens": {
+    "userToken": {
+      "subject": "user:alex",
+      "subjectType": "user",
+      "audience": "mcp",
+      "scope": [
+        "tickets.read"
+      ],
+      "expiresInMin": 60
+    }
+  },
+  "hands": {
+    "client": [
+      "client.send"
+    ],
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth"
+    ]
+  }
+}

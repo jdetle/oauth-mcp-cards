@@ -1,0 +1,21 @@
+{
+  "id": "assess-partner-webhook",
+  "order": 36,
+  "phase": "assessment",
+  "title": "Assessment: Partner Webhook",
+  "text": "The app receives a webhook from a partner and needs the MCP server to update a shared record.",
+  "userPresent": false,
+  "request": {
+    "action": "Update a shared record",
+    "requiredScope": "records.write",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "jag"
+  ],
+  "tells": "No user; partner identity; trust boundary crossing.",
+  "discussion": "JAG, ideally with the partner's own signed assertion so the MCP server knows the change came from the partner, not just from your app.",
+  "covers": [
+    "JWT Authorization Grant (rules doc)"
+  ]
+}

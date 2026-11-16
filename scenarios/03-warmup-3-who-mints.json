@@ -1,0 +1,58 @@
+{
+  "id": "warmup-3-who-mints",
+  "order": 3,
+  "phase": "warmup",
+  "title": "Warm-up 3: Who Mints",
+  "flowLabel": "Issuers",
+  "text": "The Application writes its own token slip for the MCP Server. The MCP Server can ask the IdP to confirm it.",
+  "userPresent": true,
+  "request": {
+    "action": "Read the user's calendar",
+    "requiredScope": "calendar.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "beats": [
+    {
+      "starter": "application"
+    }
+  ],
+  "hands": {
+    "client": [],
+    "application": [
+      {
+        "type": "selfmint",
+        "audience": "mcp",
+        "scope": [
+          "calendar.read"
+        ],
+        "scripted": true,
+        "label": "Write your own token slip for the MCP Server"
+      }
+    ],
+    "idp": [
+      {
+        "type": "issue",
+        "label": "Confirm: yes, I minted this"
+      },
+      "idp.reject"
+    ],
+    "mcp": [
+      "mcp.accept",
+      "mcp.reject",
+      "mcp.introspect",
+      "mcp.validate_audience",
+      "mcp.validate_scope"
+    ]
+  },
+  "teaches": [
+    "Only the IdP mints tokens. Everyone else carries or validates them."
+  ],
+  "covers": [
+    "Gateway Auth Reference"
+  ]
+}

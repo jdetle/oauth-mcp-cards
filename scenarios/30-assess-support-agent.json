@@ -1,0 +1,21 @@
+{
+  "id": "assess-support-agent",
+  "order": 30,
+  "phase": "assessment",
+  "title": "Assessment: Support Agent",
+  "text": "A support agent in the admin console asks the MCP server to pull a customer's order history.",
+  "userPresent": true,
+  "request": {
+    "action": "Pull a customer's order history",
+    "requiredScope": "orders.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "obo"
+  ],
+  "tells": "User present; the Application acts for the user; the call crosses to the MCP Server.",
+  "covers": [
+    "MCP OBO Auth"
+  ]
+}

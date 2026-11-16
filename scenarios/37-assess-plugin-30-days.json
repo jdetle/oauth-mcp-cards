@@ -1,0 +1,23 @@
+{
+  "id": "assess-plugin-30-days",
+  "order": 37,
+  "phase": "assessment",
+  "title": "Assessment: Plugin 30 Days",
+  "text": "A user authorises a third-party plugin to act on their behalf inside the MCP server for the next 30 days.",
+  "userPresent": true,
+  "request": {
+    "action": "Act on the user's notes",
+    "requiredScope": "notes.write",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "obo"
+  ],
+  "tells": "User present; long-lived delegation; third party.",
+  "discussion": "OBO with a refresh token. Discuss consent scope: what exactly did the user agree to for 30 days, and how do they revoke it?",
+  "refreshToken": true,
+  "covers": [
+    "MCP OBO Auth"
+  ]
+}

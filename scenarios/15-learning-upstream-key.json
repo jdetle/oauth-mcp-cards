@@ -1,0 +1,55 @@
+{
+  "id": "learning-upstream-key",
+  "order": 15,
+  "phase": "learning",
+  "title": "Learning: Per-Key Upstream Credentials",
+  "flowLabel": "Per-key upstream credential",
+  "text": "Team A's service calls the MCP gateway with its own virtual key. The gateway maps that key to Team A's credential for the issue-tracker MCP server. No person is involved.",
+  "userPresent": false,
+  "request": {
+    "action": "Create a ticket in Team A's project",
+    "requiredScope": "issues.write",
+    "userScoped": true,
+    "user": "key:team-a"
+  },
+  "expectedFlows": [
+    "upstream"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "idpAudiences": [],
+  "apiKeys": [
+    {
+      "keyId": "trk_...teamA",
+      "owner": "key:team-a",
+      "scopes": [
+        "issues.*"
+      ]
+    },
+    {
+      "keyId": "trk_...adm1",
+      "owner": "shared-admin",
+      "scopes": [
+        "*"
+      ]
+    }
+  ],
+  "hands": {
+    "application": [
+      "app.upstream_user",
+      "app.upstream_shared",
+      "app.assertion",
+      "app.forward"
+    ]
+  },
+  "tells": "The caller is a service holding a virtual key, not a signed-in user.",
+  "teaches": [
+    "Per-key credentials do for services what per-user credentials do for people: each caller's upstream access stays separate.",
+    "Revoking Team A's virtual key cuts off only Team A."
+  ],
+  "covers": [
+    "MCP Per-User and Per-Key Upstream Credentials"
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "id": "learning-idjag",
+  "order": 16,
+  "phase": "learning",
+  "title": "Learning: ID-JAG (Cross App Access)",
+  "flowLabel": "ID-JAG (Identity Assertion JWT Authorization Grant, e.g. Okta)",
+  "text": "Your company signs in with Okta. A user in the internal AI assistant asks it to pull their open tickets from a SaaS tool's MCP server. The SaaS tool's authorization server trusts your Okta for cross-app access.",
+  "userPresent": true,
+  "request": {
+    "action": "Pull my open tickets",
+    "requiredScope": "tickets.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "idjag"
+  ],
+  "tokens": {
+    "userToken": {
+      "kind": "id",
+      "subject": "user:alex",
+      "subjectType": "user",
+      "audience": "application",
+      "scope": [
+        "tickets.read"
+      ],
+      "expiresInMin": 60
+    }
+  },
+  "holders": {
+    "client": [
+      "userToken"
+    ],
+    "application": []
+  },
+  "hands": {
+    "application": [
+      "app.idjag",
+      "app.exchange",
+      "app.forward",
+      "app.assertion"
+    ]
+  },
+  "teaches": [
+    "ID-JAG lets an enterprise IdP vouch for a user to another app's authorization server, with admin policy instead of a consent screen.",
+    "The Application exchanges the user's identity at the IdP for an ID-JAG addressed to the resource's authorization server, then trades that for an access token there.",
+    "An ID token is never sent to an API as an access token."
+  ],
+  "discussion": "Real ID-JAG has one more hop than this table shows: the IdP issues the ID-JAG (token exchange), and the Application presents it to the resource's own authorization server (JWT bearer grant) to get an access token. Here the MCP Server seat plays that authorization server too.",
+  "covers": [
+    "MCP ID-JAG Auth (Okta)"
+  ]
+}

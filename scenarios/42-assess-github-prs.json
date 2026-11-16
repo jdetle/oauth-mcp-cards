@@ -1,0 +1,52 @@
+{
+  "id": "assess-github-prs",
+  "order": 42,
+  "phase": "assessment",
+  "title": "Assessment: Github Prs",
+  "text": "A user asks the assistant to open a pull request through the GitHub MCP server. Each user has linked their own GitHub account to the gateway.",
+  "userPresent": true,
+  "request": {
+    "action": "Open a pull request as the user",
+    "requiredScope": "repo.write",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "upstream"
+  ],
+  "tells": "Upstream doesn't trust your IdP; per-user credential exists.",
+  "covers": [
+    "MCP Per-User and Per-Key Upstream Credentials"
+  ],
+  "idpAudiences": [],
+  "apiKeys": [
+    {
+      "keyId": "ghu_...a1ex",
+      "owner": "user:alex",
+      "scopes": [
+        "repo.*"
+      ]
+    },
+    {
+      "keyId": "ghp_...adm1",
+      "owner": "shared-admin",
+      "scopes": [
+        "*"
+      ]
+    }
+  ],
+  "hands": {
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth",
+      "app.upstream_shared"
+    ]
+  }
+}

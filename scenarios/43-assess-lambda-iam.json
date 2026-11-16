@@ -1,0 +1,38 @@
+{
+  "id": "assess-lambda-iam",
+  "order": 43,
+  "phase": "assessment",
+  "title": "Assessment: Lambda Iam",
+  "text": "A scheduled Lambda function calls an MCP server hosted behind API Gateway with IAM auth.",
+  "userPresent": false,
+  "request": {
+    "action": "Read inventory",
+    "requiredScope": "inventory.read",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "sigv4"
+  ],
+  "tells": "No user; AWS IAM in front of the server.",
+  "covers": [
+    "MCP - AWS SigV4 Auth"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "hands": {
+    "application": [
+      "app.forward",
+      "app.exchange",
+      "app.idjag",
+      "app.assertion",
+      "app.api_key",
+      "app.upstream_user",
+      "app.sigv4",
+      "app.jwt_sign",
+      "app.reauth",
+      "app.aws_secret"
+    ]
+  }
+}

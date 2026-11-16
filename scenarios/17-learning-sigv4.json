@@ -1,0 +1,38 @@
+{
+  "id": "learning-sigv4",
+  "order": 17,
+  "phase": "learning",
+  "title": "Learning: AWS SigV4",
+  "flowLabel": "AWS SigV4 request signing",
+  "text": "An agent running in AWS Lambda calls an MCP server deployed behind Amazon API Gateway with IAM authorization. No user is involved.",
+  "userPresent": false,
+  "request": {
+    "action": "Query warehouse inventory",
+    "requiredScope": "inventory.read",
+    "userScoped": false
+  },
+  "expectedFlows": [
+    "sigv4"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "hands": {
+    "application": [
+      "app.sigv4",
+      "app.sigv4_replay",
+      "app.aws_secret",
+      "app.assertion",
+      "app.forward"
+    ]
+  },
+  "teaches": [
+    "With SigV4 the secret never crosses the wire: every request is signed with it.",
+    "Signatures cover the exact request and a timestamp, so they can't be replayed later or reused for another service.",
+    "Use short-lived role credentials, not long-term access keys."
+  ],
+  "covers": [
+    "MCP - AWS SigV4 Auth"
+  ]
+}

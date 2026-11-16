@@ -1,0 +1,73 @@
+{
+  "id": "learning-mcp-oauth",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: MCP OAuth",
+  "flowLabel": "MCP OAuth (authorization code + PKCE)",
+  "text": "A developer adds the company's MCP server to their AI assistant (the MCP client). The server answers 401 and points to its authorization server. The Application sits this one out: the MCP client talks to the MCP server directly.",
+  "userPresent": true,
+  "request": {
+    "action": "Search the user's documents",
+    "requiredScope": "docs.read",
+    "userScoped": true,
+    "user": "user:alex"
+  },
+  "expectedFlows": [
+    "oauth"
+  ],
+  "holders": {
+    "client": [],
+    "application": []
+  },
+  "idpAudiences": [
+    "mcp"
+  ],
+  "hands": {
+    "client": [
+      {
+        "type": "token_request",
+        "audience": "mcp",
+        "scope": [
+          "docs.read"
+        ],
+        "pkce": true,
+        "label": "Run the authorization code flow with PKCE, resource = MCP Server, scope docs.read"
+      },
+      {
+        "type": "token_request",
+        "audience": "mcp",
+        "scope": [
+          "docs.read"
+        ],
+        "pkce": false,
+        "trap": true,
+        "label": "Run the authorization code flow without PKCE (it's only a desktop app)"
+      },
+      {
+        "type": "request",
+        "to": "mcp",
+        "attach": "latest",
+        "label": "Call the MCP Server with the token you were issued"
+      }
+    ],
+    "application": [],
+    "idp": [
+      "idp.issue",
+      "idp.reject"
+    ],
+    "mcp": [
+      "mcp.accept",
+      "mcp.reject",
+      "mcp.validate_audience",
+      "mcp.validate_scope"
+    ]
+  },
+  "teaches": [
+    "In MCP OAuth the MCP client is the OAuth client: it discovers the authorization server from the MCP server's 401 / protected-resource metadata.",
+    "The client asks for a token for this specific MCP server (resource indicator), so the audience is the MCP server.",
+    "Public clients must use PKCE."
+  ],
+  "covers": [
+    "MCP OAuth"
+  ]
+}

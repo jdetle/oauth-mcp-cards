@@ -1,0 +1,399 @@
+"use client";
+import PartySocket from "partysocket";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QUICK_REF } from "../game/reference.ts";
+import {
+  FLOW_NAMES,
+  FREE_CARDS,
+  ROLES,
+  ROLE_NAMES,
+  type ClientMessage,
+  type Flow,
+  type PrivateView,
+  type PublicState,
+  type Role,
+  type ServerMessage,
+} from "../game/types.ts";
+import { forgetSession, loadSession, PARTY_HOST } from "./api.ts";
+import { JoinForm } from "./JoinForm.tsx";
+import { InFlightSlip, TokenSlip } from "./Slip.tsx";
+
+type Conn = "connecting" | "open" | "closed" | "unauthorized";
+
+function useGame(room: string, session: string | null) {
+  const [state, setState] = useState<PublicState | null>(null);
+  const [you, setYou] = useState<PrivateView | null>(null);
+  const [conn, setConn] = useState<Conn>("connecting");
+  const [error, setError] = useState<string | null>(null);
+  const sock = useRef<PartySocket | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    setConn("connecting");
+    const ws = new PartySocket({ host: PARTY_HOST, party: "main", room, query: { session } });
+    sock.current = ws;
+    ws.addEventListener("open", () => setConn("open"));
+    ws.addEventListener("close", (e) => {
+      if (e.code === 4401) {
+        ws.close();
+        setConn("unauthorized");
+      } else setConn((c) => (c === "unauthorized" ? c : "closed"));
+    });
+    ws.addEventListener("message", (e) => {
+      let m: ServerMessage;
+      try {
+        m = JSON.parse(String(e.data));
+      } catch {
+        return;
+      }
+      if (m.t === "state") {
+        setState(m.state);
+        setYou(m.you);
+        setConn("open");
+      } else if (m.t === "error") {
+        setError(m.message);
+      }
+    });
+    const ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "ping" })), 25_000);
+    return () => {
+      clearInterval(ping);
+      ws.close();
+    };
+  }, [room, session]);
+
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
+
+  const send = useCallback((m: ClientMessage) => sock.current?.send(JSON.stringify(m)), []);
+  return { state, you, conn, error, send, setError };
+}
+
+export function Table({ room }: { room: string }) {
+  const [session, setSession] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+  useEffect(() => {
+    setSession(loadSession(room)?.session ?? null);
+    setChecked(true);
+  }, [room]);
+  const g = useGame(room, session);
+
+  if (!checked) return <main className="wrap">Loading…</main>;
+  if (!session || g.conn === "unauthorized") {
+    return (
+      <main className="wrap stack">
+        <a href="/">← Lobby</a>
+        <section className="panel stack">
+          <h1 className="room-name">{room}</h1>
+          <p className="muted">{g.conn === "unauthorized" ? "Your seat in this room has expired. Join again." : "Enter the room password to join."}</p>
+          <JoinForm
+            room={room}
+            autoFocus
+            onJoined={() => {
+              const s = loadSession(room);
+              setSession(s?.session ?? null);
+            }}
+          />
+        </section>
+      </main>
+    );
+  }
+  if (!g.state || !g.you) return <main className="wrap">Connecting to {room}…</main>;
+  return <Game room={room} state={g.state} you={g.you} conn={g.conn} error={g.error} send={g.send} leave={() => { forgetSession(room); location.href = "/"; }} />;
+}
+
+function Game(props: {
+  room: string;
+  state: PublicState;
+  you: PrivateView;
+  conn: Conn;
+  error: string | null;
+  send: (m: ClientMessage) => void;
+  leave: () => void;
+}) {
+  const { state, you, send, conn, error } = props;
+  const r = state.round;
+  const byId = useMemo(() => new Map(state.players.map((p) => [p.id, p])), [state.players]);
+  const seatPlayer = (role: Role) => {
+    const id = r && r.status !== "done" ? r.seats[role] : state.players.find((p) => p.role === role)?.id;
+    return id ? byId.get(id) : undefined;
+  };
+  const myRoundRole = r ? (ROLES.find((role) => r.seats[role] === you.playerId) ?? null) : null;
+  const myTurn = !!r && r.status === "playing" && !!myRoundRole && r.activeRole === myRoundRole;
+  const playable = you.hand.filter((c) => you.canPlay.includes(c.id));
+  // on phones the hand is a drawer: it opens by itself when it's your turn
+  const [handOpen, setHandOpen] = useState(false);
+  useEffect(() => setHandOpen(myTurn), [myTurn, r?.index]);
+
+  // number keys play the nth playable card
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9 && playable[n - 1]) send({ t: "play", cardId: playable[n - 1]!.id });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playable, send]);
+
+  const total = (id: string) => {
+    const s = byId.get(id)?.score;
+    return s ? s.calls + s.identify + s.bonus : 0;
+  };
+
+  return (
+    <main className="wrap">
+      <div className="game">
+        <div className="stack" style={{ minWidth: 0 }}>
+          <header className="topbar">
+            <div className="title">
+              <a href="/" aria-label="Back to lobby">←</a>
+              <h1 className="room-name" style={{ margin: 0 }}>{props.room}</h1>
+              {r ? <span className="pill">{r.phase} · round {r.index + 1}/{state.rounds.length}</span> : <span className="pill">not started</span>}
+              <span className="pill" aria-live="polite">{conn === "open" ? "connected" : "reconnecting…"}</span>
+            </div>
+            <div className="row small">
+              You are <b>{you.name}</b> · {you.role ? ROLE_NAMES[you.role] : "spectator"}
+            </div>
+          </header>
+
+          {error ? <div className="error" role="alert">{error}</div> : null}
+
+          {you.isHost ? <HostControls state={state} send={send} /> : null}
+
+          {!state.started || !r ? (
+            <section className="panel stack">
+              <h2>{state.players.filter((p) => p.role).length === 4 ? "Table is full" : "Waiting for four players"}</h2>
+              <p className="muted small">Share the room name <b>{props.room}</b> and the password. {state.players.filter((p) => p.role).length}/4 seats filled.</p>
+              {you.isHost ? <p className="small">When all four seats are filled, press <b>Start game</b>.</p> : <p className="small">The host starts the game.</p>}
+            </section>
+          ) : (
+            <section className="panel scenario stack" aria-labelledby="scn-h">
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <h2 id="scn-h" style={{ margin: 0 }}>{r.title}</h2>
+                {r.flowLabel ? <span className="flow">{r.flowLabel}</span> : <span className="pill">unlabelled: which flow is this?</span>}
+              </div>
+              <p style={{ margin: 0, fontSize: "1.05rem" }}>{r.text}</p>
+              {r.tellEnabled && myRoundRole ? (
+                <div className="row">
+                  <button onClick={() => send({ t: "tell" })} disabled={!!r.tellAwardedTo}>
+                    🔔 No user is present!
+                  </button>
+                  <span className="muted small">{r.tellAwardedTo ? `${byId.get(r.tellAwardedTo)?.name} called it first.` : "Spot the tell: first correct call scores a bonus."}</span>
+                </div>
+              ) : null}
+            </section>
+          )}
+
+          <section className="table" aria-label="Table">
+            {ROLES.map((role) => {
+              const p = seatPlayer(role);
+              const active = r?.status === "playing" && r.activeRole === role;
+              return (
+                <div key={role} className={`seat${active ? " active" : ""}${p?.id === you.playerId ? " me" : ""}`} style={{ gridArea: role }} aria-current={active ? "step" : undefined}>
+                  <div className="role">
+                    <span>{ROLE_NAMES[role]}</span>
+                    {active ? <span aria-label="their turn">▶</span> : null}
+                  </div>
+                  <div className="who">
+                    {p ? (<><span className={`dot${p.connected ? " on" : ""}`} aria-hidden />{p.name}{p.id === you.playerId ? " (you)" : ""}</>) : <i>empty seat</i>}
+                  </div>
+                  {p ? <div className="small" style={{ opacity: 0.8 }}>{total(p.id)} pts</div> : null}
+                  {!p && !myRoundRole ? <button className="ghost small" style={{ color: "inherit", minHeight: 32, padding: "0.2rem 0.6rem" }} onClick={() => send({ t: "sit", role })}>Sit here</button> : null}
+                </div>
+              );
+            })}
+            <div className="center">
+              {r && r.status === "playing" ? (
+                <div className={`turn-banner${myTurn ? " mine" : ""}`} role="status">
+                  {myTurn ? "Your turn: play a card" : `${ROLE_NAMES[r.activeRole!]}'s turn`}
+                </div>
+              ) : null}
+              {r && r.status === "identify" ? <div className="turn-banner" role="status">Everyone: pick the flow privately ({r.identifySubmitted.length}/4 in)</div> : null}
+              {r?.inFlight ? <InFlightSlip item={r.inFlight} /> : null}
+              {r && r.slips.length ? (
+                <div className="chain" aria-label="Chain so far">
+                  {r.slips.map((s, i) => (
+                    <span className="hop" key={i}>{i + 1}. {ROLE_NAMES[s.from]} → {ROLE_NAMES[s.to]}: {s.label}</span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          {r?.status === "identify" && myRoundRole ? <Identify you={you} choices={r.flowChoices} send={send} /> : null}
+          {r?.status === "done" && r.result ? <Result state={state} you={you} send={send} /> : null}
+
+          {myRoundRole && r && r.status !== "done" ? (
+            <section className={`hand-panel${handOpen ? "" : " collapsed"}`} aria-label="Your hand">
+              <div className="hand-head">
+                <button className="hand-toggle" onClick={() => setHandOpen(!handOpen)} aria-expanded={handOpen} aria-controls="hand-body">
+                  <strong>Your hand · {ROLE_NAMES[myRoundRole]}</strong> <span aria-hidden>{handOpen ? "▾" : "▴"}</span>
+                </button>
+                <span className="muted small">{myTurn ? "Your turn: press 1–9 or tap a highlighted card" : "Wait for your turn"}</span>
+              </div>
+              <div id="hand-body" className="hand-body">
+              {you.slips.length ? (
+                <div className="my-slips" aria-label="Token slips you hold">
+                  {you.slips.map((t) => <TokenSlip key={t.id} token={t} title="Slip in your pocket" />)}
+                </div>
+              ) : null}
+              <div className="hand">
+                {you.hand.length === 0 ? <span className="muted small">No cards for you this round. Watch the flow.</span> : null}
+                {you.hand.map((c) => {
+                  const idx = playable.indexOf(c);
+                  const can = idx >= 0;
+                  return (
+                    <button key={c.id} className={`card${can ? " playable" : ""}`} disabled={!can} onClick={() => send({ t: "play", cardId: c.id })} aria-keyshortcuts={can && idx < 9 ? String(idx + 1) : undefined}>
+                      <span className="cat">
+                        <span>{c.category}{FREE_CARDS.includes(c.type) ? " · free check" : ""}</span>
+                        {can && idx < 9 ? <span className="key">{idx + 1}</span> : null}
+                      </span>
+                      <span className="label">{c.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <Side state={state} you={you} send={send} myRoundRole={myRoundRole} leave={props.leave} />
+      </div>
+    </main>
+  );
+}
+
+function HostControls({ state, send }: { state: PublicState; send: (m: ClientMessage) => void }) {
+  const r = state.round;
+  const [target, setTarget] = useState(r?.index ?? 0);
+  useEffect(() => setTarget(r?.index ?? 0), [r?.index]);
+  return (
+    <section className="panel row" aria-label="Host controls" style={{ padding: 10 }}>
+      <strong className="small">Host</strong>
+      {!state.started ? <button className="primary" onClick={() => send({ t: "start" })}>Start game</button> : null}
+      {r?.status === "done" ? <button className="primary" onClick={() => send({ t: "host", action: "next" })} disabled={r.index + 1 >= state.rounds.length}>Next round</button> : null}
+      {r ? <button onClick={() => send({ t: "host", action: "replay" })}>Replay round</button> : null}
+      {r?.status === "identify" ? <button onClick={() => send({ t: "host", action: "forceReveal" })}>Start play now</button> : null}
+      <label className="row" style={{ display: "flex", gap: 6 }}>
+        <span className="sr-only">Jump to round</span>
+        <select aria-label="Jump to round" value={target} onChange={(e) => setTarget(Number(e.target.value))} style={{ width: "auto", minWidth: 200 }}>
+          {state.rounds.map((x) => (
+            <option key={x.index} value={x.index}>{x.index + 1}. {x.title}</option>
+          ))}
+        </select>
+      </label>
+      <button onClick={() => send({ t: "host", action: "goto", round: target })}>Go (skip)</button>
+    </section>
+  );
+}
+
+function Identify({ you, choices, send }: { you: PrivateView; choices: Flow[]; send: (m: ClientMessage) => void }) {
+  return (
+    <section className="panel stack" aria-labelledby="id-h">
+      <h2 id="id-h">Which flow does this call for?</h2>
+      <p className="muted small" style={{ margin: 0 }}>Your pick is private until the round ends. You can change it until play starts.</p>
+      <div className="flow-choices" role="radiogroup">
+        {choices.map((f) => (
+          <label key={f}>
+            <input type="radio" name="flow" checked={you.myGuess === f} onChange={() => send({ t: "identify", flow: f })} />
+            {FLOW_NAMES[f]}
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Result({ state, you, send }: { state: PublicState; you: PrivateView; send: (m: ClientMessage) => void }) {
+  const res = state.round!.result!;
+  return (
+    <section className={`panel result stack ${res.success ? "ok" : "bad"}`} aria-labelledby="res-h" aria-live="polite">
+      <h2 id="res-h">{res.success ? "✓ Chain unbroken" : `✗ Chain broken at ${ROLE_NAMES[res.failedStep!.role]} (${res.failedStep!.playerName})`}</h2>
+      {res.failedStep ? <p style={{ margin: 0 }}><b>The move:</b> {res.failedStep.text}</p> : null}
+      <p style={{ margin: 0 }}>{res.explanation}</p>
+      {res.tells ? <p className="small" style={{ margin: 0 }}><b>Tells:</b> {res.tells}</p> : null}
+      {res.discussion ? <p className="small" style={{ margin: 0 }}><b>Discuss:</b> {res.discussion}</p> : null}
+      {res.teaches.length ? (
+        <div className="small"><b>What this round teaches</b><ul>{res.teaches.map((t) => <li key={t}>{t}</li>)}</ul></div>
+      ) : null}
+      {res.guesses.length ? (
+        <div className="small"><b>Guesses</b><ul>{res.guesses.map((g) => <li key={g.playerId}>{g.correct ? "✓" : "✗"} {g.name}: {FLOW_NAMES[g.flow]}</li>)}</ul></div>
+      ) : null}
+      {res.traps.length ? <div className="small"><b>Traps played</b><ul>{res.traps.map((t) => <li key={t}>{t}</li>)}</ul></div> : null}
+      <div className="small"><b>Points</b><ul>{res.awards.length ? res.awards.map((a, i) => <li key={i}>+{a.points} {a.name}: {a.why}</li>) : <li>None this round.</li>}</ul></div>
+      {you.isHost ? (
+        <div className="row">
+          <button className="primary" onClick={() => send({ t: "host", action: "next" })} disabled={state.round!.index + 1 >= state.rounds.length}>Next round (seats rotate)</button>
+          <button onClick={() => send({ t: "host", action: "replay" })}>Replay</button>
+        </div>
+      ) : <p className="muted small" style={{ margin: 0 }}>Waiting for the host to continue. Seats rotate each round.</p>}
+    </section>
+  );
+}
+
+function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; you: PrivateView; send: (m: ClientMessage) => void; myRoundRole: Role | null; leave: () => void }) {
+  const [tab, setTab] = useState<"log" | "score">("log");
+  const r = state.round;
+  const role = myRoundRole ?? you.role;
+  const logRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+  }, [r?.log.length, tab]);
+  const players = [...state.players].sort((a, b) => b.score.calls + b.score.identify + b.score.bonus - (a.score.calls + a.score.identify + a.score.bonus));
+  return (
+    <aside className="side">
+      {role ? (
+        <section className="panel stack small" aria-labelledby="qr-h">
+          <h3 id="qr-h">Quick reference · {ROLE_NAMES[role]}</h3>
+          <div><b>You hold:</b> {QUICK_REF[role].hold}</div>
+          <div><b>You check:</b> {QUICK_REF[role].check}</div>
+          <div><b>Never:</b> {QUICK_REF[role].never}</div>
+          <a href="/reference/" target="_blank" rel="noreferrer">All auth flows →</a>
+        </section>
+      ) : null}
+      <section className="panel stack">
+        <div className="tabs" role="tablist">
+          <button role="tab" aria-selected={tab === "log"} onClick={() => setTab("log")}>Round log</button>
+          <button role="tab" aria-selected={tab === "score"} onClick={() => setTab("score")}>Scoreboard</button>
+        </div>
+        {tab === "log" ? (
+          <ol className="log" ref={logRef} aria-live="polite">
+            {r?.log.map((l) => (
+              <li key={l.seq} className={l.verdict}>
+                {l.role ? <b>{ROLE_NAMES[l.role]}{l.playerName ? ` (${l.playerName})` : ""}: </b> : null}
+                {l.text}
+                {l.verdict === "correct" ? " ✓" : l.verdict === "incorrect" ? " ✗" : ""}
+                {l.detail ? <span className="detail">{l.detail}</span> : null}
+              </li>
+            )) ?? <li className="info">The round log appears here.</li>}
+          </ol>
+        ) : (
+          <table className="score">
+            <thead><tr><th>Player</th><th>Calls</th><th>ID</th><th>Bonus</th><th>Total</th></tr></thead>
+            <tbody>
+              {players.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.name}{p.isHost ? " ★" : ""}<div className="muted small">{p.role ? ROLE_NAMES[p.role] : "spectator"}</div></td>
+                  <td className="num">{p.score.calls}</td>
+                  <td className="num">{p.score.identify}</td>
+                  <td className="num">{p.score.bonus}</td>
+                  <td className="num"><b>{p.score.calls + p.score.identify + p.score.bonus}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+      <section className="panel row small">
+        {you.role && (!r || r.status === "done") ? <button onClick={() => send({ t: "stand" })}>Stand up</button> : null}
+        <button className="ghost" onClick={leave}>Leave room</button>
+        {state.spectators ? <span className="muted">{state.spectators} watching</span> : null}
+      </section>
+    </aside>
+  );
+}
