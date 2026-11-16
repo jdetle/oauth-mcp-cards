@@ -31,9 +31,9 @@ const missed = (fx: { verdict: Verdict; call?: Call }) => (fx.call ? !fx.call.ma
 
 const CARD_W = 264;
 const CARD_H = 168;
-/** How long a landed card stays put so the table can read it. Whole play ≥ 5 seconds. */
-const HOLD_MS = 3400;
-const HOLD_CHECK_MS = 3900; // free checks don't travel, so they hold a little longer
+/** How long a landed card stays put so the table can read it. Whole play ≈ 10 seconds. */
+const HOLD_MS = 8400;
+const HOLD_CHECK_MS = 8900; // free checks don't travel, so they hold a little longer
 const COLS = 10;
 const ROWS = 6;
 const CW = CARD_W / COLS;
@@ -235,7 +235,7 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
       else done();
     };
     // safety net: never leave a card on the board
-    const guard = setTimeout(done, 9000);
+    const guard = setTimeout(done, 14000);
     return () => {
       clearTimeout(guard);
       if (holdTimer) clearTimeout(holdTimer);
