@@ -241,7 +241,7 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
   const [target, setTarget] = useState(r?.index ?? 0);
   useEffect(() => setTarget(r?.index ?? 0), [r?.index]);
   return (
-    <section className="panel row" aria-label="Host controls" style={{ padding: 10 }}>
+    <section className="panel row" aria-label="Host controls">
       <strong className="small">Host</strong>
       {!state.started ? <button className="primary" onClick={() => send({ t: "start" })}>Start game</button> : null}
       {r?.status === "done" ? <button className="primary" onClick={() => send({ t: "host", action: "next" })} disabled={r.index + 1 >= state.rounds.length}>Next round</button> : null}

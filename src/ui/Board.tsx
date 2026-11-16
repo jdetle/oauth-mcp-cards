@@ -7,9 +7,12 @@ import { InFlightSlip } from "./Slip.tsx";
 
 type Pt = { x: number; y: number };
 
-/** Terminal positions in a 1000×640 board, for wide and narrow layouts. */
-const WIDE: Record<Role, Pt> = { client: { x: 500, y: 70 }, application: { x: 900, y: 320 }, idp: { x: 500, y: 570 }, mcp: { x: 100, y: 320 } };
-const NARROW: Record<Role, Pt> = { client: { x: 250, y: 60 }, application: { x: 750, y: 60 }, idp: { x: 750, y: 580 }, mcp: { x: 250, y: 580 } };
+/** Board coordinate space, and terminal positions kept well inside its edges. */
+const W = 1000;
+const H = 720;
+const MID = { x: W / 2, y: H / 2 };
+const WIDE: Record<Role, Pt> = { client: { x: 500, y: 120 }, application: { x: 830, y: 360 }, idp: { x: 500, y: 600 }, mcp: { x: 170, y: 360 } };
+const NARROW: Record<Role, Pt> = { client: { x: 270, y: 105 }, application: { x: 730, y: 105 }, idp: { x: 730, y: 615 }, mcp: { x: 270, y: 615 } };
 
 function useWide() {
   const [wide, setWide] = useState(true);
@@ -134,7 +137,7 @@ export function Board({
 
   return (
     <section className="board" aria-label="Game board">
-      <svg className="circuit" viewBox="0 0 1000 640" preserveAspectRatio="none" aria-hidden>
+      <svg className="circuit" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
         <defs>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="4" result="b" />
@@ -145,8 +148,8 @@ export function Board({
           </filter>
         </defs>
         {/* background etching */}
-        {[160, 260, 380, 480].map((y) => (
-          <path key={y} className="etch" d={`M40 ${y} H${300 + (y % 7) * 20} V${y + 30} H960`} />
+        {[200, 300, 430, 530].map((y) => (
+          <path key={y} className="etch" d={`M60 ${y} H${300 + (y % 7) * 20} V${y + 30} H940`} />
         ))}
         {/* the flow ring */}
         {FLOW.map(([a, b]) => (
@@ -156,16 +159,16 @@ export function Board({
         {(r?.slips ?? [])
           .filter((s) => !FLOW.some(([a, b]) => a === s.from && b === s.to))
           .map((s, i) => (
-            <path key={i} className="trace used off" d={`M${pos[s.from].x} ${pos[s.from].y} L500 320 L${pos[s.to].x} ${pos[s.to].y}`} />
+            <path key={i} className="trace used off" d={`M${pos[s.from].x} ${pos[s.from].y} L${MID.x} ${MID.y} L${pos[s.to].x} ${pos[s.to].y}`} />
           ))}
         {live ? (
           <g filter="url(#glow)">
-            <path className={`trace live c-${live.from}`} d={FLOW.some(([a, b]) => a === live.from && b === live.to) ? trace(pos[live.from], pos[live.to]) : `M${pos[live.from].x} ${pos[live.from].y} L500 320 L${pos[live.to].x} ${pos[live.to].y}`} />
+            <path className={`trace live c-${live.from}`} d={FLOW.some(([a, b]) => a === live.from && b === live.to) ? trace(pos[live.from], pos[live.to]) : `M${pos[live.from].x} ${pos[live.from].y} L${MID.x} ${MID.y} L${pos[live.to].x} ${pos[live.to].y}`} />
             <circle r="9" className={`packet c-${live.from}`}>
               <animateMotion
                 dur="1.6s"
                 repeatCount="indefinite"
-                path={FLOW.some(([a, b]) => a === live.from && b === live.to) ? trace(pos[live.from], pos[live.to]) : `M${pos[live.from].x} ${pos[live.from].y} L500 320 L${pos[live.to].x} ${pos[live.to].y}`}
+                path={FLOW.some(([a, b]) => a === live.from && b === live.to) ? trace(pos[live.from], pos[live.to]) : `M${pos[live.from].x} ${pos[live.from].y} L${MID.x} ${MID.y} L${pos[live.to].x} ${pos[live.to].y}`}
               />
             </circle>
           </g>
@@ -180,7 +183,7 @@ export function Board({
           <div
             key={role}
             className={`terminal r-${role}${active ? " active" : ""}${p?.id === youId ? " me" : ""}${broken === role ? " fell" : ""}`}
-            style={{ left: `${pt.x / 10}%`, top: `${(pt.y / 640) * 100}%` }}
+            style={{ left: `${(pt.x / W) * 100}%`, top: `${(pt.y / H) * 100}%` }}
             aria-current={active ? "step" : undefined}
           >
             {broken === role ? <TrapDoor open label={`${ROLE_NAMES[role]} fell through the trap door`} /> : null}

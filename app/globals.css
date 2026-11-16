@@ -135,7 +135,7 @@ option { background: var(--panel-solid); }
   background: var(--panel);
   backdrop-filter: blur(6px);
   border: 1px solid var(--line);
-  padding: 16px;
+  padding: 22px 26px;
   clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
   box-shadow: inset 0 0 0 1px rgba(41, 240, 255, 0.05), inset 0 0 40px rgba(41, 240, 255, 0.04);
 }
@@ -147,7 +147,9 @@ option { background: var(--panel-solid); }
   background: var(--cyan);
   box-shadow: 0 0 12px var(--cyan);
 }
-.stack { display: grid; gap: 12px; }
+.stack { display: grid; gap: 14px; }
+.panel p { margin: 0; }
+.panel.row { padding: 14px 20px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
@@ -204,8 +206,8 @@ option { background: var(--panel-solid); }
 /* ---- the board ------------------------------------------------------------------- */
 .board {
   position: relative;
-  aspect-ratio: 1000 / 640;
-  min-height: 420px;
+  aspect-ratio: 1000 / 720;
+  min-height: 480px;
   border: 1px solid var(--line);
   background:
     radial-gradient(circle at 50% 50%, rgba(41, 240, 255, 0.10), transparent 55%),
@@ -215,7 +217,7 @@ option { background: var(--panel-solid); }
   clip-path: polygon(24px 0, calc(100% - 24px) 0, 100% 24px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 24px 100%, 0 calc(100% - 24px), 0 24px);
   box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.8);
 }
-@media (max-width: 719px) { .board { aspect-ratio: auto; min-height: 560px; } }
+@media (max-width: 719px) { .board { aspect-ratio: auto; min-height: 620px; } }
 .circuit { position: absolute; inset: 0; width: 100%; height: 100%; }
 .circuit .etch { fill: none; stroke: rgba(41, 240, 255, 0.07); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .circuit .trace { fill: none; stroke: rgba(41, 240, 255, 0.18); stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 2 6; }
@@ -234,13 +236,13 @@ option { background: var(--panel-solid); }
   --c: var(--cyan);
   position: absolute;
   transform: translate(-50%, -50%);
-  width: clamp(140px, 22%, 210px);
-  padding: 10px 12px 12px;
+  width: clamp(150px, 24%, 230px);
+  padding: 14px 18px 16px;
   background: rgba(3, 7, 16, 0.92);
   border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
   clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
   box-shadow: inset 0 0 22px color-mix(in srgb, var(--c) 18%, transparent);
-  display: grid; gap: 4px;
+  display: grid; gap: 6px;
   z-index: 2;
 }
 .terminal.r-client { --c: var(--r-client); }
@@ -252,7 +254,7 @@ option { background: var(--panel-solid); }
 .terminal .t-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .terminal .t-empty { color: var(--dim); font-family: var(--mono); font-size: 0.8rem; }
 .terminal .t-score { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
-.terminal .t-sit { min-height: 32px; padding: 0.2rem 0.6rem; font-size: 0.7rem; border-color: var(--c); color: var(--c); }
+.terminal .t-sit { min-height: 34px; padding: 0.3rem 0.8rem; margin-top: 4px; font-size: 0.7rem; border-color: var(--c); color: var(--c); }
 .terminal.me { background: color-mix(in srgb, var(--c) 12%, rgba(3, 7, 16, 0.95)); }
 .terminal.active {
   border-color: var(--c);
@@ -269,12 +271,12 @@ option { background: var(--panel-solid); }
   position: absolute;
   left: 50%; top: 50%;
   transform: translate(-50%, -50%);
-  width: min(48%, 380px);
+  width: min(44%, 380px);
   display: grid; gap: 8px;
   z-index: 3;
 }
 @media (max-width: 719px) { .core { width: 86%; } }
-.core .idle { font-family: var(--mono); color: var(--dim); text-align: center; text-transform: uppercase; letter-spacing: 0.2em; font-size: 0.75rem; }
+.core .idle { font-family: var(--mono); color: var(--muted); text-align: center; text-transform: uppercase; letter-spacing: 0.2em; font-size: 0.72rem; padding: 10px 14px; background: rgba(3, 7, 16, 0.9); border: 1px solid var(--line); }
 .turn-banner {
   text-align: center; padding: 6px 10px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem;
   border: 1px solid var(--line-strong); background: rgba(3, 7, 16, 0.85); color: var(--cyan);
