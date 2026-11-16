@@ -33,7 +33,7 @@ const CARD_W = 264;
 const CARD_H = 168;
 /** How long a landed card stays put so the table can read it. Whole play ≈ 5 seconds. */
 const HOLD_MS = 3400;
-const HOLD_CHECK_MS = 3900; // free checks don't travel, so they hold a little longer
+const HOLD_CHECK_MS = 1100; // a check is a quick reveal: its result stays on the sealed slip
 const COLS = 10;
 const ROWS = 6;
 const CW = CARD_W / COLS;

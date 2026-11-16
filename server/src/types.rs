@@ -294,11 +294,49 @@ pub enum CardType {
     Reject,
     ValidateAudience,
     ValidateScope,
+    ValidateExpiry,
+    ValidateIssuer,
+    ValidateSubject,
+}
+
+/// One thing a receiver can verify about a token. None of these are needed for the
+/// system to function; each one skipped is a way for the wrong caller to get through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckKind {
+    Audience,
+    Scope,
+    Expiry,
+    Issuer,
+    Subject,
+}
+
+impl CheckKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            CheckKind::Audience => "audience",
+            CheckKind::Scope => "scope",
+            CheckKind::Expiry => "expiry",
+            CheckKind::Issuer => "issuer",
+            CheckKind::Subject => "subject",
+        }
+    }
 }
 
 impl CardType {
     pub fn is_free(self) -> bool {
-        matches!(self, CardType::RegisteredKey | CardType::ValidateAudience | CardType::ValidateScope)
+        matches!(self, CardType::RegisteredKey) || self.check_kind().is_some()
+    }
+    /// The token check this card performs, if it is one.
+    pub fn check_kind(self) -> Option<CheckKind> {
+        Some(match self {
+            CardType::ValidateAudience => CheckKind::Audience,
+            CardType::ValidateScope => CheckKind::Scope,
+            CardType::ValidateExpiry => CheckKind::Expiry,
+            CardType::ValidateIssuer => CheckKind::Issuer,
+            CardType::ValidateSubject => CheckKind::Subject,
+            _ => return None,
+        })
     }
     pub fn is_consumable(self) -> bool {
         matches!(
@@ -345,7 +383,7 @@ impl CardType {
             CardType::Issue => "Issue",
             CardType::RegisteredKey => "Registered Key",
             CardType::Accept => "Accept",
-            CardType::ValidateAudience | CardType::ValidateScope => "Validate",
+            CardType::ValidateAudience | CardType::ValidateScope | CardType::ValidateExpiry | CardType::ValidateIssuer | CardType::ValidateSubject => "Validate",
         }
     }
 }
@@ -486,6 +524,56 @@ pub struct LogEntry {
     /// expected vs played, for judged moves
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub call: Option<Call>,
+    /// for decisions on a sealed token: was it verified first, or trusted blind?
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub diligence: Option<Diligence>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiligenceTag {
+    /// trusted it after running every relevant check
+    Verified,
+    /// trusted it without checking everything, and it happened to be fine
+    Unverified,
+    /// trusted something bad
+    Breach,
+    /// refused something bad because a check showed it
+    Caught,
+    /// refused something bad without having checked what was wrong
+    Hunch,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diligence {
+    pub tag: DiligenceTag,
+    /// relevant checks that were not run before deciding
+    pub skipped: Vec<CheckKind>,
+    /// for a breach: the check(s) that would have exposed it
+    pub would_catch: Vec<CheckKind>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DiligenceStats {
+    pub verified: u32,
+    pub unverified: u32,
+    pub breaches: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Revealed {
+    pub kind: CheckKind,
+    pub ok: bool,
+    pub detail: String,
+}
+
+/// The token in flight is sealed: only checked fields are shown (to anyone).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Sealed {
+    /// every field that can be checked on this token, by this receiver
+    pub fields: Vec<CheckKind>,
+    pub revealed: Vec<Revealed>,
 }
 
 /// A finished (or replaced) round's log, kept for the game-long timeline.
@@ -516,6 +604,7 @@ pub struct PublicPlayer {
     pub bot: bool,
     pub is_host: bool,
     pub score: ScoreBreakdown,
+    pub diligence: DiligenceStats,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -565,6 +654,8 @@ pub struct RoundResult {
     pub guesses: Vec<Guess>,
     pub awards: Vec<Award>,
     pub traps: Vec<String>,
+    /// revealed at the end: what an intruder swapped in transit, if anything
+    pub intrusion: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -647,6 +738,8 @@ pub struct PublicRound {
     pub tell_enabled: bool,
     /// between rounds: who's ready, who we're waiting on, and the idle countdown
     pub ready_check: Option<ReadyCheck>,
+    /// set while the token in flight is sealed (learning and assessment rounds)
+    pub sealed: Option<Sealed>,
 }
 
 #[derive(Clone, Debug, Serialize)]

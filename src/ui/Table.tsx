@@ -20,7 +20,7 @@ import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
 import { ReadyBar } from "./ReadyBar.tsx";
 import { KeysContext, Seal } from "./Seal.tsx";
-import { CallPair, rememberRoom, Timeline } from "./Timeline.tsx";
+import { CallPair, DiligenceTag, rememberRoom, Timeline } from "./Timeline.tsx";
 import { TokenSlip } from "./Slip.tsx";
 
 type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted";
@@ -234,22 +234,34 @@ function Game(props: {
                   {you.slips.map((t) => <TokenSlip key={t.id} token={t} title="Slip in your pocket" />)}
                 </div>
               ) : null}
-              <div className="hand">
-                {you.hand.length === 0 ? <span className="muted small">No cards for you this round. Watch the flow.</span> : null}
-                {you.hand.map((c) => {
-                  const idx = playable.indexOf(c);
-                  const can = idx >= 0;
-                  return (
-                    <button key={c.id} className={`card cat-${c.category.toLowerCase().replace(/\s+/g, "-")}${can ? " playable" : ""}`} disabled={!can} onClick={() => send({ t: "play", cardId: c.id })} aria-keyshortcuts={can && idx < 9 ? String(idx + 1) : undefined}>
-                      <span className="cat">
-                        <span>{c.category}{FREE_CARDS.includes(c.type) ? " · free check" : ""}</span>
-                        {can && idx < 9 ? <span className="key">{idx + 1}</span> : null}
-                      </span>
-                      <span className="label">{c.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {you.hand.length === 0 ? <span className="muted small">No cards for you this round. Watch the flow.</span> : null}
+              {(["must", "ought"] as const).map((group) => {
+                const cards = you.hand.filter((c) => (group === "ought") === FREE_CARDS.includes(c.type));
+                if (!cards.length) return null;
+                return (
+                  <div key={group} className={`hand-group ${group}`}>
+                    <div className="hand-group-head">
+                      <b>{group === "must" ? "Have to do" : "Ought to do"}</b>
+                      <span>{group === "must" ? "Your move. The system only works if you make one." : "Checks. Free, and nothing forces you. Skip one and a wrong caller can get through."}</span>
+                    </div>
+                    <div className="hand">
+                      {cards.map((c) => {
+                        const idx = playable.indexOf(c);
+                        const can = idx >= 0;
+                        return (
+                          <button key={c.id} className={`card cat-${c.category.toLowerCase().replace(/\s+/g, "-")}${can ? " playable" : ""}${group === "ought" ? " optional" : ""}`} disabled={!can} onClick={() => send({ t: "play", cardId: c.id })} aria-keyshortcuts={can && idx < 9 ? String(idx + 1) : undefined}>
+                            <span className="cat">
+                              <span>{group === "ought" ? "optional check" : c.category}</span>
+                              {can && idx < 9 ? <span className="key">{idx + 1}</span> : null}
+                            </span>
+                            <span className="label">{c.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
               </div>
             </section>
           ) : null}
@@ -357,11 +369,13 @@ function Result({ state, you, send }: { state: PublicState; you: PrivateView; se
             <li key={l.seq}>
               <span className={`calls-who r-${l.role}`}>{ROLE_NAMES[l.role!]}</span>
               <CallPair call={l.call!} />
+              {l.diligence ? <DiligenceTag d={l.diligence} /> : null}
             </li>
           ))}
         </ol>
         <p className="muted small">Colour is the kind of call: red stops, green lets through. A red Reject that was expected is a match.</p>
       </div>
+      {res.intrusion ? <p className="intrusion" role="note"><b>Intruder.</b> {res.intrusion}</p> : null}
       <p style={{ margin: 0 }}>{res.explanation}</p>
       {res.tells ? <p className="small" style={{ margin: 0 }}><b>Tells:</b> {res.tells}</p> : null}
       {res.discussion ? <p className="small" style={{ margin: 0 }}><b>Discuss:</b> {res.discussion}</p> : null}
@@ -422,7 +436,7 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
           <Timeline room={state.room} round={r} />
         ) : (
           <table className="score">
-            <thead><tr><th>Player</th><th>Calls</th><th>ID</th><th>Bonus</th><th>Total</th></tr></thead>
+            <thead><tr><th>Player</th><th>Calls</th><th>ID</th><th>Bonus</th><th>Total</th><th title="Decisions on sealed tokens: verified first / trusted unchecked / breaches">Checked</th></tr></thead>
             <tbody>
               {players.map((p) => (
                 <tr key={p.id}>
@@ -431,6 +445,9 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
                   <td className="num">{p.score.identify}</td>
                   <td className="num">{p.score.bonus}</td>
                   <td className="num"><b>{p.score.calls + p.score.identify + p.score.bonus}</b></td>
+                  <td className="num dil-stats" aria-label={`${p.diligence.verified} verified, ${p.diligence.unverified} unchecked, ${p.diligence.breaches} breaches`}>
+                    <span className="v">{p.diligence.verified}</span>/<span className="u">{p.diligence.unverified}</span>/<span className="b">{p.diligence.breaches}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>

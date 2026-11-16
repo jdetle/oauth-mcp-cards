@@ -387,6 +387,13 @@ async fn create_room(
     }
     let name = room_name(&|n| rooms.contains_key(n));
     let mut game = Game::new(&name, state.scenarios.clone());
+    // how often an intruder swaps a token in transit (learning and assessment rounds)
+    game.intruder_rate = std::env::var("INTRUDER_RATE").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.35).clamp(0.0, 1.0);
+    game.intruder_target = match std::env::var("INTRUDER_TARGET").as_deref() {
+        Ok("application") => Some(Role::Application),
+        Ok("mcp") => Some(Role::Mcp),
+        _ => None,
+    };
     if let Some(ms) = std::env::var("READY_TIMEOUT_MS").ok().and_then(|v| v.parse::<i64>().ok()).filter(|ms| *ms >= 1000) {
         game.ready_timeout_ms = ms;
     }
@@ -588,35 +595,37 @@ pub fn drive_ready(room: Arc<Mutex<Room>>) {
 /// If a sim is due to act, schedule its move after a human-paced delay
 /// (long enough for the previous card's 3D animation to land). One pending move per room.
 pub fn drive_sims(room: Arc<Mutex<Room>>) {
-    let delay = {
+    let (delay, sim, choice) = {
         let mut r = room.lock().unwrap();
-        if r.sim_pending || r.game.next_sim().is_none() {
+        if r.sim_pending {
             return;
         }
+        let Some(sim) = r.game.next_sim() else { return };
+        // SIM_SKILL (0..1) overrides how often sims make the right call
+        let skill = std::env::var("SIM_SKILL").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(crate::engine::SIM_SKILL);
+        let Some(choice) = r.game.sim_choice(&sim, skill) else { return };
         r.sim_pending = true;
         let identify = r.game.round.as_ref().map(|x| x.status == RoundStatus::Identify).unwrap_or(false);
         let jitter = u64::from(u16::from_le_bytes(random_bytes::<2>()) % 700);
-        // SIM_DELAY_MS overrides the pacing (tests run sims fast)
-        match std::env::var("SIM_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
+        // A card play is on screen for about 5s, so a sim waits that out before its first
+        // action on a new card. Checks after that are quick reveals, and so is the decision
+        // that follows them. SIM_DELAY_MS overrides the pacing (tests run sims fast).
+        let quick = r.game.checks_started();
+        let delay = match std::env::var("SIM_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
             Some(ms) => Duration::from_millis(ms),
-            // a card play is on screen for about 5s; a sim waits it out before moving
-            None => Duration::from_millis(if identify { 500 + jitter } else { 5600 + jitter }),
-        }
+            None => Duration::from_millis(if identify { 500 + jitter } else if quick { 1500 + jitter } else { 5600 + jitter }),
+        };
+        (delay, sim, choice)
     };
     tokio::spawn(async move {
         tokio::time::sleep(delay).await;
         {
             let mut r = room.lock().unwrap();
             r.sim_pending = false;
-            if let Some(sim) = r.game.next_sim() {
-                // SIM_SKILL (0..1) overrides how often sims make the right call
-                let skill = std::env::var("SIM_SKILL").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(crate::engine::SIM_SKILL);
-                if let Some(m) = r.game.sim_choice(&sim, skill) {
-                    if apply(&mut r.game, &sim, m).is_ok() {
-                        r.last_active = Instant::now();
-                        r.broadcast();
-                    }
-                }
+            // only act if it is still this sim's move (a person may have taken the seat meanwhile)
+            if r.game.next_sim().as_deref() == Some(sim.as_str()) && apply(&mut r.game, &sim, choice).is_ok() {
+                r.last_active = Instant::now();
+                r.broadcast();
             }
         }
         drive_sims(room.clone());

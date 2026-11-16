@@ -150,10 +150,37 @@ export type CardType =
   | "introspect" // MCP: ask the IdP whether it minted this token
   | "accept"
   | "reject"
-  | "validate_audience" // MCP: free check
-  | "validate_scope"; // MCP: free check
+  | "validate_audience" // optional checks: free, and nothing forces you to play one
+  | "validate_scope"
+  | "validate_expiry"
+  | "validate_issuer"
+  | "validate_subject";
 
-export const FREE_CARDS: CardType[] = ["registered_key", "validate_audience", "validate_scope"];
+export const FREE_CARDS: CardType[] = ["registered_key", "validate_audience", "validate_scope", "validate_expiry", "validate_issuer", "validate_subject"];
+
+/** One thing a receiver can verify about a token. */
+export type CheckKind = "audience" | "scope" | "expiry" | "issuer" | "subject";
+
+/** How a decision on a sealed token was made. */
+export interface Diligence {
+  /** verified: checked everything first. unverified: trusted blind and it was fine. breach: trusted something bad.
+   *  caught: refused something bad a check exposed. hunch: refused something bad without having looked. */
+  tag: "verified" | "unverified" | "breach" | "caught" | "hunch";
+  skipped: CheckKind[];
+  wouldCatch: CheckKind[];
+}
+
+export interface DiligenceStats {
+  verified: number;
+  unverified: number;
+  breaches: number;
+}
+
+/** The token in flight is sealed: only checked fields are shown, to anyone. */
+export interface Sealed {
+  fields: CheckKind[];
+  revealed: { kind: CheckKind; ok: boolean; detail: string }[];
+}
 
 /** Card as dealt to a hand. Only the owner ever sees it. */
 export interface Card {
@@ -208,6 +235,8 @@ export interface LogEntry {
   detail?: string;
   /** expected vs played, for judged moves */
   call?: Call;
+  /** for decisions on a sealed token: verified first, or trusted blind? */
+  diligence?: Diligence;
 }
 
 /** A finished round's log, kept for the game-long timeline. */
@@ -234,6 +263,7 @@ export interface PublicPlayer {
   bot: boolean;
   isHost: boolean;
   score: ScoreBreakdown;
+  diligence: DiligenceStats;
 }
 
 export interface RoundSummary {
@@ -253,6 +283,8 @@ export interface RoundResult {
   guesses: { playerId: string; name: string; flow: Flow; correct: boolean }[];
   awards: { playerId: string; name: string; points: number; why: string }[];
   traps: string[];
+  /** revealed at the end: what an intruder swapped in transit, if anything */
+  intrusion: string | null;
 }
 
 export interface ReadyCheck {
@@ -288,6 +320,8 @@ export interface PublicRound {
   tellEnabled: boolean;
   /** between rounds: who's ready, who we're waiting on, and the idle countdown */
   readyCheck: ReadyCheck | null;
+  /** set while the token in flight is sealed (learning and assessment rounds) */
+  sealed: Sealed | null;
 }
 
 export interface PublicState {

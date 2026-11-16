@@ -154,7 +154,23 @@ impl Scenario {
     }
 
     pub fn hand_templates(&self, role: Role) -> Vec<CardTemplate> {
-        self.hands.as_ref().and_then(|h| h.get(&role).cloned()).unwrap_or_else(|| self.default_hand(role))
+        let mut hand = self.hands.as_ref().and_then(|h| h.get(&role).cloned()).unwrap_or_else(|| self.default_hand(role));
+        // After the warm-ups, receivers always hold the full set of optional checks:
+        // nothing makes them play one, which is the point.
+        if self.phase != Phase::Warmup && !hand.is_empty() {
+            let extra: &[&str] = match role {
+                Role::Mcp => &["mcp.validate_audience", "mcp.validate_scope", "mcp.validate_expiry", "mcp.validate_issuer", "mcp.validate_subject"],
+                // ...and a way to act on a bad one: without it, checking would be pointless
+                Role::Application if self.resolved_holders().get(&Role::Client).is_some_and(|h| !h.is_empty()) => &["app.check_audience", "app.check_expiry", "app.reauth"],
+                _ => &[],
+            };
+            for name in extra {
+                if !hand.iter().any(|t| matches!(t, CardTemplate::Preset(p) if p == name)) {
+                    hand.push(CardTemplate::Preset(name.to_string()));
+                }
+            }
+        }
+        hand
     }
 
     /// Turn templates into concrete cards with fresh, unguessable ids.
@@ -279,6 +295,11 @@ pub fn preset(name: &str, s: &Scenario) -> Option<CardSpec> {
         "idp.registered_key" => c(CardType::RegisteredKey, "Registered Key: check the signature"),
         "mcp.validate_audience" => c(CardType::ValidateAudience, "Validate Audience"),
         "mcp.validate_scope" => c(CardType::ValidateScope, "Validate Scope"),
+        "mcp.validate_expiry" => c(CardType::ValidateExpiry, "Validate Expiry"),
+        "mcp.validate_issuer" => c(CardType::ValidateIssuer, "Validate Issuer"),
+        "mcp.validate_subject" => c(CardType::ValidateSubject, "Validate Subject"),
+        "app.check_audience" => c(CardType::ValidateAudience, "Check who the token is for"),
+        "app.check_expiry" => c(CardType::ValidateExpiry, "Check the token hasn't expired"),
         "mcp.introspect" => c(CardType::Introspect, "Ask the IdP to confirm this token"),
         _ => return None,
     })

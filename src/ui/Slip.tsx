@@ -1,5 +1,5 @@
 "use client";
-import { ROLE_NAMES, type Credential, type InFlight, type Role, type Token } from "../game/types.ts";
+import { ROLE_NAMES, type CheckKind, type Credential, type InFlight, type Role, type Sealed, type Token } from "../game/types.ts";
 import { Seal, useKeys } from "./Seal.tsx";
 
 const AUD_NAMES: Record<string, string> = { ...ROLE_NAMES, gateway: "Gateway" };
@@ -26,26 +26,47 @@ function Fields({ rows }: { rows: [string, React.ReactNode][] }) {
   );
 }
 
-export function TokenSlip({ token, title }: { token: Token; title?: string }) {
+export function TokenSlip({ token, title, sealed }: { token: Token; title?: string; sealed?: Sealed | null }) {
   const now = Date.now();
   const kind = token.kind === "id" ? "ID token" : token.kind === "id_jag" ? "ID-JAG" : "Access token";
+  // A sealed token shows a field only once it has been checked.
+  const cell = (k: CheckKind, value: React.ReactNode): React.ReactNode => {
+    if (!sealed) return value;
+    const seen = sealed.revealed.find((r) => r.kind === k);
+    if (seen) {
+      return (
+        <span className={seen.ok ? "field-ok" : "field-bad"} title={seen.detail}>
+          {value} {seen.ok ? "✓" : "✗"}
+        </span>
+      );
+    }
+    return <span className="field-sealed">{sealed.fields.includes(k) ? "▒▒▒▒▒▒ unchecked" : "▒▒▒▒▒▒"}</span>;
+  };
+  const unchecked = sealed ? sealed.fields.filter((k) => !sealed.revealed.some((r) => r.kind === k)) : [];
   return (
-    <div className="slip" role="group" aria-label={`${kind} slip`}>
+    <div className={`slip${sealed ? " is-sealed" : ""}`} role="group" aria-label={`${kind} slip${sealed ? `, sealed: ${unchecked.length} of ${sealed.fields.length} fields unchecked` : ""}`}>
       <div className="slip-title">
-        <span>{title ?? kind}</span>
+        <span>{title ?? (sealed ? `${kind} · sealed` : kind)}</span>
         {token.forged ? <span className="bad">hand-written</span> : null}
         <Seal of={token.id} size={30} broken={!!token.forged} label={token.forged ? "Not minted by the IdP" : "This token's seal"} />
       </div>
       <Fields
         rows={[
-          ["subject", `${token.subject}${token.subjectType === "app" ? " (app)" : ""}`],
-          ["audience", aud(token.audience)],
-          ["scope", token.scope.join(" ")],
-          ["expiry", rel(token.expiry, now)],
-          ["issuer", aud(token.issuer)],
+          ["subject", cell("subject", `${token.subject}${token.subjectType === "app" ? " (app)" : ""}`)],
+          ["audience", cell("audience", aud(token.audience))],
+          ["scope", cell("scope", token.scope.join(" "))],
+          ["expiry", cell("expiry", rel(token.expiry, now))],
+          ["issuer", cell("issuer", aud(token.issuer))],
           ...(token.refreshable ? ([["refresh", "yes (long-lived delegation)"]] as [string, string][]) : []),
         ]}
       />
+      {sealed ? (
+        <p className="slip-note">
+          {unchecked.length
+            ? `You only know what you check. Unchecked: ${unchecked.join(", ")}. Nothing forces a check; it will work either way.`
+            : "Every relevant field has been checked."}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -69,12 +90,12 @@ function Signed({ signature, publicKey, signer, note }: { signature: string; pub
   );
 }
 
-function CredentialSlip({ c }: { c: Credential }) {
+function CredentialSlip({ c, sealed }: { c: Credential; sealed?: Sealed | null }) {
   const keys = useKeys();
   const now = Date.now();
   switch (c.type) {
     case "bearer":
-      return <TokenSlip token={c.token} />;
+      return <TokenSlip token={c.token} sealed={sealed} />;
     case "api_key":
       return (
         <div className="slip">
@@ -119,7 +140,7 @@ function CredentialSlip({ c }: { c: Credential }) {
   }
 }
 
-export function InFlightSlip({ item }: { item: InFlight }) {
+export function InFlightSlip({ item, sealed }: { item: InFlight; sealed?: Sealed | null }) {
   const now = Date.now();
   const keys = useKeys();
   const head = `${ROLE_NAMES[item.from as Role]} → ${ROLE_NAMES[item.to as Role]}`;
@@ -128,7 +149,7 @@ export function InFlightSlip({ item }: { item: InFlight }) {
       return (
         <div className="stack" style={{ gap: 6 }}>
           <div className="small">{head}: request “{item.request.action}” (needs <code>{item.request.requiredScope}</code>)</div>
-          {item.token ? <TokenSlip token={item.token} /> : <div className="slip">No token attached</div>}
+          {item.token ? <TokenSlip token={item.token} sealed={sealed} /> : <div className="slip">No token attached</div>}
         </div>
       );
     case "token_request":
@@ -171,7 +192,7 @@ export function InFlightSlip({ item }: { item: InFlight }) {
             {head}: {item.kind === "introspect" ? "“Did you mint this?”" : <>call “{item.request.action}” (needs <code>{item.request.requiredScope}</code>{item.request.userScoped ? `, ${item.request.user ?? "a user"}'s data` : ""})</>}
             {item.kind === "call" && item.confirmedByIdp ? " · IdP vouched for it" : ""}
           </div>
-          {item.credential ? <CredentialSlip c={item.credential} /> : <div className="slip">No credential</div>}
+          {item.credential ? <CredentialSlip c={item.credential} sealed={sealed} /> : <div className="slip">No credential</div>}
         </div>
       );
   }

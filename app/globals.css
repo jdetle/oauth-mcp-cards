@@ -743,3 +743,32 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
 .ready-roster li.away { opacity: 0.5; }
 /* leave room under the page for the fixed ready bar on small screens */
 @media (max-width: 1099px) { .game:has(.ready-bar) { padding-bottom: 190px; } }
+
+/* ---- have to do vs ought to do --------------------------------------------------------- */
+.hand-group { display: grid; gap: 4px; }
+.hand-group + .hand-group { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.hand-group-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.hand-group-head b { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.2em; text-transform: uppercase; color: #fff; }
+.hand-group.ought .hand-group-head b { color: var(--violet); }
+.hand-group-head span { font-size: 0.76rem; color: var(--muted); }
+.card.optional { --k: var(--violet); min-height: 78px; flex-basis: 170px; border-style: dashed; }
+.card.optional .label { font-size: 0.84rem; }
+@media (min-width: 1100px) { .card.optional { flex-basis: 180px; } }
+
+/* sealed token: a field shows only once it has been checked */
+.slip.is-sealed { border-style: dashed; }
+.field-sealed { color: var(--dim); letter-spacing: 0.04em; }
+.field-ok { color: var(--green); }
+.field-bad { color: var(--red); font-weight: 700; text-shadow: 0 0 8px rgba(255, 45, 85, 0.6); }
+
+/* how a decision on a sealed token was made */
+.dil { display: inline-block; margin-top: 6px; padding: 1px 7px; font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid currentColor; }
+.dil i { font-style: normal; text-transform: none; letter-spacing: 0; opacity: 0.9; }
+.dil-verified, .dil-caught { color: var(--cyan); background: rgba(41, 240, 255, 0.08); }
+.dil-unverified, .dil-hunch { color: var(--warn); background: rgba(255, 210, 63, 0.08); }
+.dil-breach { color: #fff; background: var(--red); border-color: var(--red); box-shadow: 0 0 12px rgba(255, 45, 85, 0.6); }
+.calls li .dil { margin-top: 0; }
+.intrusion { margin: 0; padding: 10px 14px; border: 1px dashed var(--magenta); background: rgba(255, 61, 203, 0.07); font-size: 0.92rem; }
+.intrusion b { color: var(--magenta); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.74rem; margin-right: 6px; }
+.dil-stats { white-space: nowrap; color: var(--dim); }
+.dil-stats .v { color: var(--cyan); } .dil-stats .u { color: var(--warn); } .dil-stats .b { color: var(--red); }

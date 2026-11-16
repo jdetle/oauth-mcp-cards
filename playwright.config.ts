@@ -13,6 +13,8 @@ const BASE_PATH = (process.env.E2E_BASE_PATH ?? "").replace(/\/$/, "");
 export const E2E_ADMIN_PASSWORD = "fixture-admin-password";
 const adminHash = external ? "" : execFileSync("./server/target/release/oauth-mcp-server", ["hash-password"], { input: `${E2E_ADMIN_PASSWORD}\n` }).toString().trim();
 
+const serverEnv = { STATIC_DIR: "../out", SCENARIOS_DIR: "../scenarios", INTERNAL_TOKEN: TOKEN, SIM_SKILL: "1", SIM_DELAY_MS: "150", READY_TIMEOUT_MS: "20000", ADMIN_PASSWORD_HASH: adminHash, BASE_PATH };
+
 export default defineConfig({
   testDir: "e2e",
   timeout: 45_000,
@@ -28,16 +30,15 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
-    { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile|@smoke/ },
+    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, testIgnore: /intruder\.spec/ },
+    { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile|@smoke/, testIgnore: /intruder\.spec/ },
+    // a second server where an intruder swaps the MCP Server's token in every round
+    ...(external ? [] : [{ name: "intruder", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, baseURL: `http://localhost:${PORT + 2}${BASE_PATH}/` }, testMatch: /intruder\.spec/ }]),
   ],
   webServer: external
     ? undefined
-    : {
-        command: "./target/release/oauth-mcp-server",
-        cwd: "server",
-        url: `http://localhost:${PORT}/api/health`,
-        reuseExistingServer: false,
-        env: { PORT: String(PORT), STATIC_DIR: "../out", SCENARIOS_DIR: "../scenarios", INTERNAL_TOKEN: TOKEN, SIM_SKILL: "1", SIM_DELAY_MS: "150", READY_TIMEOUT_MS: "20000", ADMIN_PASSWORD_HASH: adminHash, BASE_PATH },
-      },
+    : [
+        { command: "./target/release/oauth-mcp-server", cwd: "server", url: `http://localhost:${PORT}/api/health`, reuseExistingServer: false, env: { ...serverEnv, PORT: String(PORT), INTRUDER_RATE: "0" } },
+        { command: "./target/release/oauth-mcp-server", cwd: "server", url: `http://localhost:${PORT + 2}/api/health`, reuseExistingServer: false, env: { ...serverEnv, PORT: String(PORT + 2), INTRUDER_RATE: "1", INTRUDER_TARGET: "mcp" } },
+      ],
 });

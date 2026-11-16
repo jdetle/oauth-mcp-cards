@@ -34,6 +34,26 @@ pub struct Player {
     pub score: ScoreBreakdown,
     /// simulated player driven by the server
     pub bot: bool,
+    /// how often they verified before trusting
+    pub diligence: DiligenceStats,
+}
+
+/// What an intruder does to a token in transit: one defect, otherwise a perfect look-alike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Defect {
+    Audience,
+    Scope,
+    Expiry,
+    Issuer,
+    Subject,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Intrusion {
+    /// whose incoming token gets swapped: the Application's or the MCP Server's
+    pub target: Role,
+    pub defect: Defect,
+    pub applied: bool,
 }
 
 /// How often a sim makes the right call.
@@ -80,6 +100,8 @@ pub struct Round {
     pub tell_pressed: Vec<String>,
     pub bonuses: Vec<(String, String)>,
     pub result: Option<RoundResult>,
+    /// a token swap waiting to happen (or already done) this round
+    pub intrusion: Option<Intrusion>,
     /// after the round: humans who have said they're ready for the next one
     pub ready: Vec<String>,
     /// after the round: when it advances on its own (reset by any ready / not-ready click)
@@ -106,6 +128,10 @@ pub struct Game {
     pub keys: Keys,
     /// how long the table can sit idle after a round before it moves on by itself
     pub ready_timeout_ms: i64,
+    /// chance per learning/assessment round that an intruder swaps a token in transit
+    pub intruder_rate: f64,
+    /// pin whose token the intruder goes after (otherwise chosen at random)
+    pub intruder_target: Option<Role>,
     now_fn: Arc<dyn Fn() -> i64 + Send + Sync>,
     id_fn: Arc<dyn Fn() -> String + Send + Sync>,
 }
@@ -241,6 +267,8 @@ impl Game {
             round: None,
             archive: vec![],
             ready_timeout_ms: 60_000,
+            intruder_rate: 0.0,
+            intruder_target: None,
             keys: Keys { app: new_key_pair(), gateway: new_key_pair(), sigv4_secret: random_hex(20) },
             now_fn: Arc::new(now_ms),
             id_fn: Arc::new(random_id),
@@ -307,7 +335,7 @@ impl Game {
                 role = Some(sim_role);
             }
         }
-        let p = Player { id, name: clean, role, score: ScoreBreakdown::default(), bot: false };
+        let p = Player { id, name: clean, role, score: ScoreBreakdown::default(), bot: false, diligence: DiligenceStats::default() };
         if self.host_id.is_none() {
             self.host_id = Some(p.id.clone());
         }
@@ -338,7 +366,7 @@ impl Game {
         for role in &empty {
             let used: Vec<String> = self.players.iter().map(|p| p.name.clone()).collect();
             let name = SIM_NAMES.iter().find(|n| !used.contains(&n.to_string())).copied().unwrap_or("Sim");
-            let p = Player { id: self.new_id(), name: name.to_string(), role: Some(*role), score: ScoreBreakdown::default(), bot: true };
+            let p = Player { id: self.new_id(), name: name.to_string(), role: Some(*role), score: ScoreBreakdown::default(), bot: true, diligence: DiligenceStats::default() };
             let pid = p.id.clone();
             self.players.push(p);
             self.fill_round_seat(*role, &pid);
@@ -357,6 +385,11 @@ impl Game {
         }
         self.players.retain(|p| !p.bot);
         Ok(())
+    }
+
+    /// Has the active player already run a check on what's in flight?
+    pub fn checks_started(&self) -> bool {
+        self.round.as_ref().is_some_and(|r| !r.free_used.is_empty())
     }
 
     /// The sim that should act next, if any.
@@ -390,13 +423,51 @@ impl Game {
         }
         let view = self.private_view(sim);
         let playable: Vec<&Card> = view.hand.iter().filter(|c| view.can_play.contains(&c.id)).collect();
-        let free: Vec<&&Card> = playable.iter().filter(|c| c.card_type.is_free()).collect();
-        if !free.is_empty() && rng.gen_bool(0.35) {
-            return Some(ClientMessage::Play { card_id: free[rng.gen_range(0..free.len())].id.clone() });
+        let my_role = r.seats.role_of(sim);
+
+        // A sealed token: a sim knows only what it has checked, same as a person. Each
+        // unrun check gets run with probability `skill`; then it decides from what it saw.
+        let mut world = self.clone(); // the world as this sim believes it to be
+        if let Some((receiver, _, request)) = self.sealed_item(r).filter(|(rcv, _, _)| Some(*rcv) == my_role) {
+            let relevant = Self::relevant_checks(receiver, request);
+            let run = Self::checks_run(r);
+            let unrun: Vec<&&Card> = playable.iter().filter(|c| c.card_type.check_kind().is_some_and(|k| relevant.contains(&k) && !run.contains(&k))).collect();
+            if !unrun.is_empty() && rng.gen_bool(skill.clamp(0.0, 1.0)) {
+                return Some(ClientMessage::Play { card_id: unrun[0].id.clone() });
+            }
+            let seen_bad = run.iter().any(|k| self.check_result(r, *k).is_some_and(|(ok, _)| !ok));
+            let by_type = |t: CardType| playable.iter().find(|c| c.card_type == t).map(|c| ClientMessage::Play { card_id: c.id.clone() });
+            if receiver == Role::Mcp {
+                // trusts whatever it hasn't seen a problem with
+                return by_type(if seen_bad { CardType::Reject } else { CardType::Accept }).or_else(|| by_type(CardType::Reject));
+            }
+            if seen_bad {
+                if let Some(m) = by_type(CardType::Reauth) {
+                    return Some(m);
+                }
+            } else if let Some(wr) = world.round.as_mut() {
+                // it saw nothing wrong, so it plans as if the token were fine
+                let healed = self.now() + 60 * MIN;
+                if let Some(InFlight::Request { token: Some(t), .. }) = wr.in_flight.as_mut() {
+                    if t.expiry <= self.now() {
+                        t.expiry = healed;
+                    }
+                }
+                if let Some(t) = wr.app_received.as_mut() {
+                    if t.expiry <= self.now() {
+                        t.expiry = healed;
+                    }
+                }
+            }
+        } else {
+            let free: Vec<&&Card> = playable.iter().filter(|c| c.card_type.is_free()).collect();
+            if !free.is_empty() && rng.gen_bool(0.35) {
+                return Some(ClientMessage::Play { card_id: free[rng.gen_range(0..free.len())].id.clone() });
+            }
         }
         let real: Vec<&&Card> = playable.iter().filter(|c| !c.card_type.is_free()).collect();
         let (good, bad): (Vec<&&Card>, Vec<&&Card>) = real.iter().partition(|c| {
-            let mut copy = self.clone();
+            let mut copy = world.clone();
             if copy.play(sim, &c.id).is_err() {
                 return false;
             }
@@ -580,9 +651,33 @@ impl Game {
             tell_pressed: vec![],
             bonuses: vec![],
             result: None,
+            intrusion: None,
             ready: vec![],
             ready_deadline: None,
         };
+        if s.phase != Phase::Warmup && self.intruder_rate > 0.0 {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            if rng.gen_bool(self.intruder_rate.clamp(0.0, 1.0)) {
+                let client_has_token = r.held.get(&Role::Client).is_some_and(|h| !h.is_empty());
+                let target = match self.intruder_target {
+                    Some(Role::Application) if client_has_token => Role::Application,
+                    Some(_) => Role::Mcp,
+                    None if client_has_token && rng.gen_bool(0.35) => Role::Application,
+                    None => Role::Mcp,
+                };
+                let defect = if target == Role::Application {
+                    Defect::Expiry
+                } else {
+                    let mut options = vec![Defect::Audience, Defect::Scope, Defect::Expiry, Defect::Issuer];
+                    if s.request.user_scoped {
+                        options.push(Defect::Subject);
+                    }
+                    options[rng.gen_range(0..options.len())]
+                };
+                r.intrusion = Some(Intrusion { target, defect, applied: false });
+            }
+        }
         let title = if s.phase == Phase::Assessment { String::new() } else { format!(": {}", s.title) };
         Self::log(&mut r, None, &format!("Round {}{title}. {}", index + 1, s.text), Verdict::Info, None, None);
         if r.status == RoundStatus::Identify {
@@ -739,6 +834,133 @@ impl Game {
         Ok(())
     }
 
+    // ---- sealed tokens, optional checks, intruders ------------------------------------------
+
+    /// Test hook / admin of fate: decide this round's intrusion directly.
+    #[cfg(test)]
+    pub fn plant_intrusion(&mut self, target: Role, defect: Defect) {
+        if let Some(r) = &mut self.round {
+            r.intrusion = Some(Intrusion { target, defect, applied: false });
+        }
+    }
+
+    /// After the warm-ups, an OAuth token arriving at the Application or the MCP Server is
+    /// sealed: nobody sees a field until the receiver checks it. Returns the receiver, the
+    /// token and the request when that applies to what is in flight now.
+    fn sealed_item<'a>(&self, r: &'a Round) -> Option<(Role, &'a Token, &'a RequestSpec)> {
+        if self.scenarios[r.index].phase == Phase::Warmup || r.status != RoundStatus::Playing {
+            return None;
+        }
+        match r.in_flight.as_ref()? {
+            InFlight::Request { to: Role::Application, token: Some(t), request, .. } => Some((Role::Application, t, request)),
+            InFlight::Call { to: Role::Mcp, credential: Some(Credential::Bearer { token }), request, .. } => Some((Role::Mcp, token, request)),
+            _ => None,
+        }
+    }
+
+    /// The checks a diligent receiver would run on this token.
+    fn relevant_checks(receiver: Role, request: &RequestSpec) -> Vec<CheckKind> {
+        if receiver == Role::Application {
+            return vec![CheckKind::Audience, CheckKind::Expiry];
+        }
+        let mut v = vec![CheckKind::Audience, CheckKind::Scope, CheckKind::Expiry, CheckKind::Issuer];
+        if request.user_scoped {
+            v.push(CheckKind::Subject);
+        }
+        v
+    }
+
+    fn rules_for(kind: CheckKind) -> &'static [Rule] {
+        match kind {
+            CheckKind::Audience => &[Rule::AudienceMismatch],
+            CheckKind::Scope => &[Rule::ScopeInsufficient],
+            CheckKind::Expiry => &[Rule::Expired],
+            CheckKind::Issuer => &[Rule::UnregisteredIssuer, Rule::UnknownToken, Rule::NotAccessToken],
+            CheckKind::Subject => &[Rule::AppSubjectUserData],
+        }
+    }
+
+    fn checks_run(r: &Round) -> Vec<CheckKind> {
+        r.free_used.iter().filter_map(|t| t.check_kind()).collect()
+    }
+
+    /// What one check finds on the token in flight: (passes, what it saw).
+    fn check_result(&self, r: &Round, kind: CheckKind) -> Option<(bool, String)> {
+        let f = r.in_flight.as_ref()?;
+        if let InFlight::Request { to: Role::Application, token: Some(t), .. } = f {
+            // The Application isn't always the audience (in passthrough it only routes), so
+            // its audience check informs rather than fails. Expiry is a real pass/fail.
+            return Some(match kind {
+                CheckKind::Audience if t.audience == "application" => (true, "Addressed to you, the Application.".to_string()),
+                CheckKind::Audience => (true, format!("Addressed to \"{}\", not to you. You can pass it along; you can't exchange it.", t.audience)),
+                CheckKind::Expiry if t.expiry > self.now() => (true, "Not expired.".to_string()),
+                CheckKind::Expiry => (false, "This token has expired.".to_string()),
+                _ => return None,
+            });
+        }
+        let v = self.judge_item(r, f);
+        if v.failures.contains(&Rule::NoToken) {
+            return Some((false, "No token was presented.".to_string()));
+        }
+        let rules = Self::rules_for(kind);
+        let mine: Vec<&Check> = v.checks.iter().filter(|c| rules.contains(&c.rule)).collect();
+        if mine.is_empty() {
+            return None;
+        }
+        let ok = mine.iter().all(|c| c.ok);
+        let detail = mine.iter().find(|c| !c.ok).or(mine.first()).map(|c| c.detail.clone()).unwrap_or_default();
+        Some((ok, detail))
+    }
+
+    /// Was this decision made with eyes open? Only for decisions on a sealed token.
+    fn diligence(&self, r: &Round, role: Role, trusted: bool, failures: &[Rule]) -> Option<Diligence> {
+        let (receiver, _, request) = self.sealed_item(r)?;
+        if receiver != role {
+            return None;
+        }
+        let run = Self::checks_run(r);
+        let skipped: Vec<CheckKind> = Self::relevant_checks(receiver, request).into_iter().filter(|k| !run.contains(k)).collect();
+        let exposing: Vec<CheckKind> = [CheckKind::Audience, CheckKind::Scope, CheckKind::Expiry, CheckKind::Issuer, CheckKind::Subject]
+            .into_iter()
+            .filter(|k| Self::rules_for(*k).iter().any(|rule| failures.contains(rule)))
+            .collect();
+        let bad = !failures.is_empty();
+        let tag = match (trusted, bad) {
+            (true, true) => DiligenceTag::Breach,
+            (true, false) if skipped.is_empty() => DiligenceTag::Verified,
+            (true, false) => DiligenceTag::Unverified,
+            (false, true) if exposing.iter().any(|k| run.contains(k)) => DiligenceTag::Caught,
+            (false, true) => DiligenceTag::Hunch,
+            (false, false) => return None,
+        };
+        Some(Diligence { tag, skipped, would_catch: if tag == DiligenceTag::Breach { exposing } else { vec![] } })
+    }
+
+    /// The intruder's swap: same token, one defect.
+    fn tamper(&self, t: &mut Token, defect: Defect, request: &RequestSpec) {
+        match defect {
+            Defect::Audience => t.audience = "billing-api".into(),
+            Defect::Scope => t.scope = vec![if request.required_scope == "profile.read" { "audit.read".into() } else { "profile.read".into() }],
+            Defect::Expiry => t.expiry = self.now() - 30 * MIN,
+            Defect::Issuer => t.issuer = "idp-staging".into(),
+            Defect::Subject => {
+                t.subject = "batch-worker".into();
+                t.subject_type = SubjectType::App;
+            }
+        }
+    }
+
+    fn intrusion_text(i: &Intrusion) -> String {
+        let what = match i.defect {
+            Defect::Audience => "one addressed to a different service (wrong audience)",
+            Defect::Scope => "one with a different scope",
+            Defect::Expiry => "one that had already expired",
+            Defect::Issuer => "one from an issuer nobody here trusts",
+            Defect::Subject => "one whose subject was an application, not the user",
+        };
+        format!("An intruder swapped the token on its way to the {} for {what}. Only a check could have shown it.", i.target.name())
+    }
+
     // ---- play -------------------------------------------------------------------------------
 
     pub fn playable(r: &Round, role: Role, card: &Card) -> bool {
@@ -758,8 +980,10 @@ impl Game {
             CardType::RegisteredKey => to_me && matches!(f, Some(InFlight::Assertion { .. })) && !r.free_used.contains(&card.card_type),
             CardType::Accept => to_me && matches!(f, Some(InFlight::Call { .. }) | Some(InFlight::Request { .. })),
             CardType::Reject => to_me,
-            CardType::ValidateAudience | CardType::ValidateScope => {
-                to_me && matches!(f, Some(InFlight::Call { .. })) && !r.free_used.contains(&card.card_type)
+            t if t.check_kind().is_some() => {
+                to_me
+                    && !r.free_used.contains(&card.card_type)
+                    && (matches!(f, Some(InFlight::Call { .. })) || matches!(f, Some(InFlight::Request { to: Role::Application, token: Some(_), .. })))
             }
             CardType::Introspect => to_me && matches!(f, Some(InFlight::Call { confirmed_by_idp: false, .. })),
             t if t.is_app_initiative() => f.is_none() || (to_me && matches!(f, Some(InFlight::Request { .. }))),
@@ -1045,8 +1269,15 @@ impl Game {
         // for decision cards: what the right decision was (set in that arm)
         let mut expected_decision: Option<Chip> = None;
         let text: String;
-        let verdict: Verdict0;
+        let mut verdict: Verdict0;
         let now = self.now();
+        // decisions on a sealed token: was it verified first, or trusted blind?
+        let mut dil: Option<Diligence> = None;
+        // the Application holding a sealed user token: is that token actually dead?
+        let (app_sealed, app_bad) = match self.sealed_item(self.round.as_ref().unwrap()) {
+            Some((Role::Application, t, _)) if role == Role::Application && !card.params.scripted => (true, t.expiry <= now),
+            _ => (false, false),
+        };
 
         match card.card_type {
             CardType::Request => {
@@ -1163,6 +1394,9 @@ impl Game {
                     verdict = Verdict0::ok();
                     text = if card.card_type == CardType::Issue { "Issue / approve".into() } else { "Accept".into() };
                 }
+                if role == Role::Mcp && !card.params.scripted && card.card_type != CardType::Issue {
+                    dil = self.diligence(r, role, card.card_type == CardType::Accept, &v.failures);
+                }
                 if card.card_type == CardType::Accept {
                     end = Some(End::Beat);
                 }
@@ -1179,8 +1413,75 @@ impl Game {
             _ => return err("That card can't be played right now."),
         }
 
+        // The Application acting on a sealed user token. Nothing forces it to check the token,
+        // but if the token is dead the only right move is to stop and re-authenticate.
+        if app_sealed && card.card_type.is_app_initiative() {
+            let r = self.round.as_ref().unwrap();
+            let trusted = card.card_type != CardType::Reauth;
+            if app_bad {
+                verdict = if trusted {
+                    let looked = Self::checks_run(r).contains(&CheckKind::Expiry);
+                    Verdict0::bad(
+                        "expired",
+                        format!(
+                            "{} {}",
+                            if looked { "You saw the token had expired and used it anyway." } else { "You acted on a token you never checked, and it had expired." },
+                            explain("expired")
+                        ),
+                    )
+                } else {
+                    Verdict0::ok()
+                };
+                dil = self.diligence(r, role, trusted, &[Rule::Expired]);
+            } else if trusted && verdict.correct == Some(true) {
+                dil = self.diligence(r, role, true, &[]);
+            }
+        }
+        // a breach: say which skipped check would have shown it
+        if let Some(d) = dil.as_ref().filter(|d| d.tag == DiligenceTag::Breach) {
+            let names = |ks: &[CheckKind]| ks.iter().map(|k| k.label()).collect::<Vec<_>>().join(", ");
+            let missed: Vec<CheckKind> = d.would_catch.iter().copied().filter(|k| d.skipped.contains(k)).collect();
+            let extra = if !missed.is_empty() {
+                format!(" Nothing forced a check, and none was made on: {}. Checking {} would have shown it.", names(&d.skipped), names(&missed))
+            } else if !d.would_catch.is_empty() {
+                " The check was run, it failed, and the token was trusted anyway.".to_string()
+            } else {
+                String::new()
+            };
+            if let Some(e) = verdict.explanation.as_mut() {
+                e.push_str(&extra);
+            }
+        }
+        let dil_bonus = verdict.correct == Some(true) && matches!(dil.as_ref().map(|d| d.tag), Some(DiligenceTag::Verified | DiligenceTag::Caught));
+
+        // The intruder: swap a good token in transit for a look-alike with one defect.
+        // The sender did nothing wrong and isn't marked down; only the receiver's checks can tell.
+        let mut intruded = false;
+        if let Some(intr) = self.round.as_ref().and_then(|r| r.intrusion.clone()).filter(|i| !i.applied) {
+            let r = self.round.as_ref().unwrap();
+            let eligible = match (&next, intr.target) {
+                (Some(InFlight::Request { to: Role::Application, token: Some(_), .. }), Role::Application) => role == Role::Client && verdict.correct == Some(true),
+                (Some(n @ InFlight::Call { to: Role::Mcp, credential: Some(Credential::Bearer { .. }), .. }), Role::Mcp) => self.judge_item(r, n).valid,
+                _ => false,
+            };
+            if eligible {
+                match &mut next {
+                    Some(InFlight::Request { token: Some(t), request, .. }) => {
+                        let req = request.clone();
+                        self.tamper(t, intr.defect, &req);
+                    }
+                    Some(InFlight::Call { credential: Some(Credential::Bearer { token }), request, .. }) => {
+                        let req = request.clone();
+                        self.tamper(token, intr.defect, &req);
+                    }
+                    _ => {}
+                }
+                intruded = true;
+            }
+        }
+
         // score + record
-        if verdict.correct == Some(true) || bonus {
+        {
             let p = self.player_mut(player_id)?;
             if verdict.correct == Some(true) {
                 p.score.calls += 1;
@@ -1188,10 +1489,28 @@ impl Game {
             if bonus {
                 p.score.bonus += 1;
             }
+            if dil_bonus {
+                p.score.bonus += 1;
+            }
+            match dil.as_ref().map(|d| d.tag) {
+                Some(DiligenceTag::Verified | DiligenceTag::Caught) => p.diligence.verified += 1,
+                Some(DiligenceTag::Unverified | DiligenceTag::Hunch) => p.diligence.unverified += 1,
+                Some(DiligenceTag::Breach) => p.diligence.breaches += 1,
+                None => {}
+            }
         }
         let r = self.round.as_mut().unwrap();
+        if intruded {
+            if let Some(i) = r.intrusion.as_mut() {
+                i.applied = true;
+            }
+        }
         if bonus {
             r.bonuses.push((player_id.to_string(), "IdP refused a play that used the wrong flow".into()));
+        }
+        if dil_bonus {
+            let why = if dil.as_ref().map(|d| d.tag) == Some(DiligenceTag::Caught) { "Caught it with a check" } else { "Verified before trusting" };
+            r.bonuses.push((player_id.to_string(), why.into()));
         }
         r.moves.push(Move {
             player_id: player_id.to_string(),
@@ -1207,8 +1526,23 @@ impl Game {
             Some(false) => Verdict::Incorrect,
             None => Verdict::Neutral,
         };
-        let detail = if verdict.correct == Some(false) { verdict.explanation.clone() } else { None };
+        let names = |ks: &[CheckKind]| ks.iter().map(|k| k.label()).collect::<Vec<_>>().join(", ");
+        let detail = if verdict.correct == Some(false) {
+            verdict.explanation.clone()
+        } else {
+            match dil.as_ref() {
+                Some(d) if d.tag == DiligenceTag::Unverified => Some(format!(
+                    "It worked, and nothing forced a check. Never checked: {}. This time nothing was wrong with it.",
+                    names(&d.skipped)
+                )),
+                Some(d) if d.tag == DiligenceTag::Hunch => Some("Right to refuse, but on a hunch: the check that shows the problem was never run.".to_string()),
+                _ => None,
+            }
+        };
         Self::log(r, Some(role), &text, v, detail, Some(name.to_string()));
+        if let Some(last) = r.log.last_mut() {
+            last.diligence = dil.clone();
+        }
 
         // expected vs played
         let call = if card.params.scripted || card.card_type == CardType::Introspect {
@@ -1228,6 +1562,7 @@ impl Game {
                 } else {
                     played.clone()
                 }),
+                _ if app_bad => Some(flow_chip(Flow::Reauth)),
                 _ => match &expected {
                     Some(e) => Some(match card_flow(card) {
                         Some(f) if e.contains(&f) => flow_chip(f),
@@ -1330,20 +1665,19 @@ impl Game {
     fn free_check(&mut self, role: Role, name: &str, card: &Card) {
         let r = self.round.as_ref().unwrap();
         let Some(f) = r.in_flight.clone() else { return };
-        let v = self.judge_item(r, &f);
-        let rules: &[Rule] = match card.card_type {
-            CardType::ValidateAudience => &[Rule::AudienceMismatch, Rule::NoToken],
-            CardType::ValidateScope => &[Rule::ScopeInsufficient, Rule::AppSubjectUserData, Rule::NoToken],
-            CardType::RegisteredKey => &[Rule::BadSignature, Rule::UnregisteredIssuer],
-            _ => &[],
-        };
-        let checks: Vec<&Check> = v.checks.iter().filter(|c| rules.contains(&c.rule)).collect();
-        let text = if !checks.is_empty() {
-            checks.iter().map(|c| format!("{} {}", if c.ok { "✓" } else { "✗" }, c.detail)).collect::<Vec<_>>().join(" ")
-        } else if matches!(&f, InFlight::Call { credential: Some(c), .. } if !matches!(c, Credential::Bearer { .. })) {
-            "Not an OAuth token: this check doesn't apply. Look at the credential itself.".into()
+        let text = if let Some(kind) = card.card_type.check_kind() {
+            match self.check_result(r, kind) {
+                Some((ok, detail)) => format!("{} {detail}", if ok { "✓" } else { "✗" }),
+                None if matches!(&f, InFlight::Call { credential: Some(c), .. } if !matches!(c, Credential::Bearer { .. })) => {
+                    "Not an OAuth token: this check doesn't apply. Look at the credential itself.".into()
+                }
+                None => "Nothing to check.".into(),
+            }
         } else {
-            "Nothing to check.".into()
+            // Registered Key: the IdP checks a signed assertion's signature
+            let v = self.judge_item(r, &f);
+            let checks: Vec<&Check> = v.checks.iter().filter(|c| matches!(c.rule, Rule::BadSignature | Rule::UnregisteredIssuer)).collect();
+            if checks.is_empty() { "Nothing to check.".into() } else { checks.iter().map(|c| format!("{} {}", if c.ok { "✓" } else { "✗" }, c.detail)).collect::<Vec<_>>().join(" ") }
         };
         let r = self.round.as_mut().unwrap();
         Self::log(r, Some(role), &format!("{}: {text}", card.label), Verdict::Info, None, Some(name.to_string()));
@@ -1404,7 +1738,11 @@ impl Game {
             guesses,
             awards,
             traps: r.moves.iter().filter(|m| m.trap).map(|m| format!("{} played a trap: \"{}\"", m.role.name(), m.label)).collect(),
+            intrusion: r.intrusion.as_ref().filter(|i| i.applied).map(Self::intrusion_text),
         });
+        if let Some(text) = r.intrusion.as_ref().filter(|i| i.applied).map(Self::intrusion_text) {
+            Self::log(&mut r, None, &text, Verdict::Info, None, None);
+        }
         let line = match &broke {
             None => ("Round succeeded: the chain held.".to_string(), Verdict::Correct),
             Some(b) => (format!("Chain broken at {}.", b.role.name()), Verdict::Incorrect),
@@ -1418,7 +1756,7 @@ impl Game {
 
     fn log(r: &mut Round, role: Option<Role>, text: &str, verdict: Verdict, detail: Option<String>, player_name: Option<String>) {
         r.seq += 1;
-        r.log.push(LogEntry { seq: r.seq, at: now_ms(), role, player_name, text: text.to_string(), verdict, detail, call: None });
+        r.log.push(LogEntry { seq: r.seq, at: now_ms(), role, player_name, text: text.to_string(), verdict, detail, call: None, diligence: None });
         if r.log.len() > MAX_LOG {
             r.log.remove(0);
         }
@@ -1438,7 +1776,31 @@ impl Game {
             let label = s.flow_label.clone().unwrap_or_else(|| {
                 s.expected_flows.clone().unwrap_or_default().iter().map(|f| f.name()).collect::<Vec<_>>().join(" / ")
             });
+            // While a learning/assessment round is live, OAuth tokens on the table are sealed:
+            // a field is only shown once the receiver has checked it. This is done here, on the
+            // server, so the hidden values never reach any browser.
+            let live = s.phase != Phase::Warmup && r.status != RoundStatus::Done;
+            let shown = Self::checks_run(r);
+            let sealed = self.sealed_item(r).map(|(receiver, _, request)| {
+                let fields = Self::relevant_checks(receiver, request);
+                let revealed = fields
+                    .iter()
+                    .filter(|k| shown.contains(k))
+                    .filter_map(|k| self.check_result(r, *k).map(|(ok, detail)| Revealed { kind: *k, ok, detail }))
+                    .collect();
+                Sealed { fields, revealed }
+            });
+            let in_flight = r.in_flight.as_ref().map(|f| if live { mask_item(f, &shown) } else { f.clone() });
+            let slips = if live {
+                r.slips
+                    .iter()
+                    .map(|sl| if carries_sealed_token(&sl.item) { Slip { from: sl.from, to: sl.to, label: sealed_label(&sl.item), item: mask_item(&sl.item, &[]) } } else { sl.clone() })
+                    .collect()
+            } else {
+                r.slips.clone()
+            };
             PublicRound {
+                sealed,
                 index: r.index,
                 phase: s.phase,
                 title: if reveal { s.title.clone() } else { format!("Scenario {}", r.index + 1 - offset) },
@@ -1446,8 +1808,8 @@ impl Game {
                 flow_label: if reveal && !label.is_empty() { Some(label) } else { None },
                 status: r.status,
                 active_role: r.active_role,
-                in_flight: r.in_flight.clone(),
-                slips: r.slips.clone(),
+                in_flight,
+                slips,
                 log: r.log.clone(),
                 identify_submitted: r.guesses.iter().map(|(id, _)| id.clone()).collect(),
                 tell_awarded_to: r.tell_awarded_to.clone(),
@@ -1473,6 +1835,7 @@ impl Game {
                     bot: p.bot,
                     is_host: self.host_id.as_deref() == Some(&p.id),
                     score: p.score.clone(),
+                    diligence: p.diligence.clone(),
                 })
                 .collect(),
             spectators,
@@ -1516,6 +1879,57 @@ impl Game {
             can_play,
             hand,
         }
+    }
+}
+
+/// Does this slip carry an OAuth token that is sealed while the round is live?
+fn carries_sealed_token(f: &InFlight) -> bool {
+    matches!(
+        f,
+        InFlight::Request { token: Some(_), .. } | InFlight::Call { to: Role::Mcp, credential: Some(Credential::Bearer { .. }), .. }
+    )
+}
+
+fn sealed_label(f: &InFlight) -> String {
+    match f {
+        InFlight::Request { to: Role::Client, .. } => "Token slip → Client (sealed)".into(),
+        InFlight::Request { .. } => "Request + sealed token".into(),
+        _ => "Call + sealed token".into(),
+    }
+}
+
+/// Blank every field of a token that hasn't been checked.
+fn mask_token(t: &Token, shown: &[CheckKind]) -> Token {
+    let has = |k: CheckKind| shown.contains(&k);
+    Token {
+        id: t.id.clone(),
+        kind: t.kind,
+        subject: if has(CheckKind::Subject) { t.subject.clone() } else { String::new() },
+        subject_type: if has(CheckKind::Subject) { t.subject_type } else { SubjectType::User },
+        audience: if has(CheckKind::Audience) { t.audience.clone() } else { String::new() },
+        scope: if has(CheckKind::Scope) { t.scope.clone() } else { vec![] },
+        expiry: if has(CheckKind::Expiry) { t.expiry } else { 0 },
+        issuer: if has(CheckKind::Issuer) { t.issuer.clone() } else { String::new() },
+        client_id: None,
+        refreshable: false,
+        forged: false,
+    }
+}
+
+fn mask_item(f: &InFlight, shown: &[CheckKind]) -> InFlight {
+    if !carries_sealed_token(f) {
+        return f.clone();
+    }
+    match f {
+        InFlight::Request { from, to, request, token: Some(t) } => InFlight::Request { from: *from, to: *to, request: request.clone(), token: Some(mask_token(t, shown)) },
+        InFlight::Call { from, to, request, credential: Some(Credential::Bearer { token }), confirmed_by_idp } => InFlight::Call {
+            from: *from,
+            to: *to,
+            request: request.clone(),
+            credential: Some(Credential::Bearer { token: mask_token(token, shown) }),
+            confirmed_by_idp: *confirmed_by_idp,
+        },
+        other => other.clone(),
     }
 }
 

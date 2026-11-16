@@ -4,7 +4,7 @@
 import { href } from "./paths.ts";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ROLE_NAMES, type ArchivedRound, type Call, type LogEntry, type PublicRound, type PublicState, type ServerMessage } from "../game/types.ts";
+import { ROLE_NAMES, type ArchivedRound, type Call, type Diligence, type LogEntry, type PublicRound, type PublicState, type ServerMessage } from "../game/types.ts";
 import { API_BASE, wsUrl } from "./api.ts";
 
 const LAST_ROOM = "omcp:lastRoom";
@@ -37,6 +37,26 @@ export function CallPair({ call, compact = false }: { call: Call; compact?: bool
         <span className={`chip t-${call.played.tone}`}>{call.played.label}</span>
       </span>
       {compact ? null : <span className="call-word">{call.matched ? "match" : "mismatch"}</span>}
+    </span>
+  );
+}
+
+const DILIGENCE_TEXT: Record<Diligence["tag"], string> = {
+  verified: "verified first",
+  unverified: "trusted unchecked",
+  breach: "breach",
+  caught: "caught by a check",
+  hunch: "refused on a hunch",
+};
+
+/** Was a decision on a sealed token made with eyes open? */
+export function DiligenceTag({ d }: { d: Diligence }) {
+  const skipped = d.skipped.length ? `Never checked: ${d.skipped.join(", ")}.` : "Every relevant check was run.";
+  const would = d.wouldCatch.length ? ` Would have been caught by: ${d.wouldCatch.join(", ")}.` : "";
+  return (
+    <span className={`dil dil-${d.tag}`} title={`${skipped}${would}`}>
+      {DILIGENCE_TEXT[d.tag]}
+      {d.tag === "unverified" || d.tag === "breach" ? <i> · skipped {d.skipped.length ? d.skipped.join(", ") : "nothing"}</i> : null}
     </span>
   );
 }
@@ -128,6 +148,7 @@ export function Timeline({ room, round, compact = false }: { room: string; round
                     </div>
                     <p>{l.text}</p>
                     {l.call ? <CallPair call={l.call} /> : null}
+                    {l.diligence ? <DiligenceTag d={l.diligence} /> : null}
                     {l.detail ? <p className="detail">{l.detail}</p> : null}
                   </li>
                 ) : (

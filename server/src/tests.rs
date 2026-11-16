@@ -756,3 +756,262 @@ fn ready_message_parses_strictly() {
     assert!(parse_client_message(r#"{"t":"ready","ready":"yes"}"#).is_none());
     assert!(parse_client_message(r#"{"t":"ready","ready":true,"who":"x"}"#).is_none());
 }
+
+// ---- required vs optional: sealed tokens, checks, diligence, intruders --------------------------
+
+/// Get the OBO round to the MCP Server's decision, optionally with an intruder at work.
+fn obo_at_mcp(intruder: Option<(Role, Defect)>) -> T {
+    let mut t = new_game();
+    let i = index_of(&t.g, "learning-obo");
+    t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i)).unwrap();
+    if let Some((role, defect)) = intruder {
+        t.g.plant_intrusion(role, defect);
+    }
+    play_label(&mut t.g, "with the user's token slip");
+    play_label(&mut t.g, "scope calendar.read)");
+    play_label(&mut t.g, "Issue");
+    assert_eq!(t.g.round.as_ref().unwrap().active_role, Some(Role::Mcp));
+    t
+}
+
+fn last_diligence(g: &Game) -> Diligence {
+    g.round.as_ref().unwrap().log.iter().rev().find_map(|l| l.diligence.clone()).expect("a diligence tag")
+}
+
+#[test]
+fn receivers_hold_every_optional_check_after_the_warm_ups() {
+    let t = obo_at_mcp(None);
+    let mcp = t.g.private_view(&t.ids[3]);
+    for label in ["Validate Audience", "Validate Scope", "Validate Expiry", "Validate Issuer", "Validate Subject"] {
+        assert!(mcp.hand.iter().any(|c| c.label == label && mcp.can_play.contains(&c.id)), "MCP Server should be able to play {label}");
+    }
+    let app = t.g.private_view(&t.ids[1]);
+    assert!(app.hand.iter().any(|c| c.label == "Check the token hasn't expired"));
+    // warm-ups stay as they were: nothing extra is dealt
+    let mut w = new_game();
+    w.g.start(&w.ids[0].clone()).unwrap();
+    assert!(!w.g.private_view(&w.ids[1]).hand.iter().any(|c| c.label.starts_with("Check ")));
+}
+
+#[test]
+fn a_sealed_token_shows_only_what_has_been_checked() {
+    let mut t = obo_at_mcp(None);
+    let view = |g: &Game| serde_json::to_value(g.public_state(&|_| true, 0)).unwrap();
+    let v = view(&t.g);
+    let tok = &v["round"]["inFlight"]["credential"]["token"];
+    assert_eq!(tok["audience"], "");
+    assert_eq!(tok["scope"], serde_json::json!([]));
+    assert_eq!(tok["expiry"], 0);
+    assert_eq!(tok["issuer"], "");
+    assert_eq!(tok["subject"], "");
+    assert_eq!(v["round"]["sealed"]["fields"], serde_json::json!(["audience", "scope", "expiry", "issuer", "subject"]));
+    assert_eq!(v["round"]["sealed"]["revealed"], serde_json::json!([]));
+    // nothing about the token leaks through the chain so far either
+    let slips = v["round"]["slips"].to_string();
+    assert!(!slips.contains("calendar.read") || !slips.contains("\"audience\":\"mcp\""), "sealed slips must not show token fields");
+    assert!(!v["round"]["slips"].as_array().unwrap().iter().any(|s| s["item"]["token"]["audience"] == "application"));
+
+    play_label(&mut t.g, "Validate Audience");
+    let v = view(&t.g);
+    assert_eq!(v["round"]["inFlight"]["credential"]["token"]["audience"], "mcp");
+    assert_eq!(v["round"]["inFlight"]["credential"]["token"]["scope"], serde_json::json!([]), "scope still sealed");
+    assert_eq!(v["round"]["sealed"]["revealed"][0]["kind"], "audience");
+    assert_eq!(v["round"]["sealed"]["revealed"][0]["ok"], true);
+
+    // once the round is over, everything is shown
+    play_label(&mut t.g, "Accept");
+    let v = view(&t.g);
+    assert!(v["round"]["sealed"].is_null());
+    assert!(v["round"]["slips"].to_string().contains("calendar.read"));
+}
+
+#[test]
+fn accepting_blind_works_but_is_marked_unverified() {
+    let mut t = obo_at_mcp(None);
+    play_label(&mut t.g, "Accept");
+    let r = t.g.round.as_ref().unwrap();
+    assert!(r.result.as_ref().unwrap().success, "it functions: nothing forced a check");
+    let d = last_diligence(&t.g);
+    assert_eq!(d.tag, DiligenceTag::Unverified);
+    assert_eq!(d.skipped.len(), 5);
+    let mcp = t.g.player(&t.ids[3]).unwrap();
+    assert_eq!((mcp.score.calls, mcp.score.bonus), (1, 0), "the call scores, but no diligence bonus");
+    assert_eq!(mcp.diligence, DiligenceStats { verified: 0, unverified: 1, breaches: 0 });
+    assert!(r.log.iter().any(|l| l.detail.as_deref().is_some_and(|d| d.contains("nothing forced a check"))));
+}
+
+#[test]
+fn running_every_check_first_is_verified_and_earns_a_bonus() {
+    let mut t = obo_at_mcp(None);
+    for c in ["Validate Audience", "Validate Scope", "Validate Expiry", "Validate Issuer"] {
+        play_label(&mut t.g, c);
+    }
+    // four of five: still not fully verified
+    let mut partial = t.g.clone();
+    play_label(&mut partial, "Accept");
+    assert_eq!(last_diligence(&partial).tag, DiligenceTag::Unverified);
+    assert_eq!(last_diligence(&partial).skipped, vec![CheckKind::Subject]);
+
+    play_label(&mut t.g, "Validate Subject");
+    play_label(&mut t.g, "Accept");
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Verified);
+    let mcp = t.g.player(&t.ids[3]).unwrap();
+    assert_eq!((mcp.score.calls, mcp.score.bonus), (1, 1));
+    assert_eq!(mcp.diligence.verified, 1);
+    assert!(t.g.round.as_ref().unwrap().result.as_ref().unwrap().awards.iter().any(|a| a.why == "Verified before trusting"));
+}
+
+#[test]
+fn an_intruder_gets_through_a_receiver_who_skips_the_check() {
+    for (defect, kind) in [
+        (Defect::Audience, CheckKind::Audience),
+        (Defect::Scope, CheckKind::Scope),
+        (Defect::Expiry, CheckKind::Expiry),
+        (Defect::Issuer, CheckKind::Issuer),
+        (Defect::Subject, CheckKind::Subject),
+    ] {
+        let mut t = obo_at_mcp(Some((Role::Mcp, defect)));
+        // the senders did everything right and keep their points
+        for id in &t.ids[..3] {
+            assert_eq!(t.g.player(id).unwrap().score.calls, 1);
+        }
+        // still sealed: the swap is invisible
+        let v = serde_json::to_value(t.g.public_state(&|_| true, 0)).unwrap();
+        assert_eq!(v["round"]["inFlight"]["credential"]["token"]["audience"], "");
+        assert!(v["round"]["result"].is_null());
+
+        play_label(&mut t.g, "Accept");
+        let r = t.g.round.as_ref().unwrap();
+        let res = r.result.as_ref().unwrap();
+        assert!(!res.success, "{defect:?}");
+        assert_eq!(res.failed_step.as_ref().unwrap().role, Role::Mcp);
+        assert!(res.intrusion.as_ref().unwrap().contains("An intruder swapped the token"));
+        let d = last_diligence(&t.g);
+        assert_eq!(d.tag, DiligenceTag::Breach);
+        assert_eq!(d.would_catch, vec![kind], "{defect:?}");
+        assert!(res.explanation.contains(&format!("Checking {} would have shown it", kind.label())), "{}", res.explanation);
+        assert_eq!(t.g.player(&t.ids[3]).unwrap().diligence.breaches, 1);
+    }
+}
+
+#[test]
+fn the_right_check_catches_the_intruder() {
+    let mut t = obo_at_mcp(Some((Role::Mcp, Defect::Audience)));
+    play_label(&mut t.g, "Validate Scope"); // passes: the scope is fine
+    play_label(&mut t.g, "Validate Audience"); // fails
+    let v = serde_json::to_value(t.g.public_state(&|_| true, 0)).unwrap();
+    let revealed = v["round"]["sealed"]["revealed"].as_array().unwrap();
+    assert!(revealed.iter().any(|x| x["kind"] == "audience" && x["ok"] == false));
+    assert_eq!(v["round"]["inFlight"]["credential"]["token"]["audience"], "billing-api");
+    play_label(&mut t.g, "Reject");
+    let r = t.g.round.as_ref().unwrap();
+    assert!(r.result.as_ref().unwrap().success, "intruder stopped: the chain held");
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Caught);
+    let mcp = t.g.player(&t.ids[3]).unwrap();
+    assert_eq!((mcp.score.calls, mcp.score.bonus), (1, 1));
+    assert!(r.result.as_ref().unwrap().awards.iter().any(|a| a.why == "Caught it with a check"));
+    // rejecting without having looked is right, but only a hunch
+    let mut t = obo_at_mcp(Some((Role::Mcp, Defect::Audience)));
+    play_label(&mut t.g, "Reject");
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Hunch);
+    assert_eq!(t.g.player(&t.ids[3]).unwrap().score.bonus, 0);
+}
+
+#[test]
+fn the_application_must_stop_on_a_dead_token_it_could_have_checked() {
+    let setup = || {
+        let mut t = new_game();
+        let i = index_of(&t.g, "learning-obo");
+        t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i)).unwrap();
+        t.g.plant_intrusion(Role::Application, Defect::Expiry);
+        play_label(&mut t.g, "with the user's token slip");
+        t
+    };
+    // blind: exchanges a dead token
+    let mut t = setup();
+    assert_eq!(t.g.player(&t.ids[0]).unwrap().score.calls, 1, "the Client isn't blamed for the swap");
+    play_label(&mut t.g, "scope calendar.read)");
+    let c = last_call(&t.g);
+    assert!(!c.matched);
+    assert_eq!(c.expected.label, "Stop: re-authenticate");
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Breach);
+    assert!(t.g.round.as_ref().unwrap().log.iter().any(|l| l.detail.as_deref().is_some_and(|d| d.contains("never checked"))));
+    // the IdP is a second line of defence: the exchange fails its own check
+    play_label(&mut t.g, "Reject");
+    assert_eq!(t.g.player(&t.ids[2]).unwrap().score.calls, 1);
+
+    // diligent: checks, sees it, stops
+    let mut t = setup();
+    play_label(&mut t.g, "Check the token hasn't expired");
+    play_label(&mut t.g, "Stop: reject the job");
+    let r = t.g.round.as_ref().unwrap();
+    assert!(r.result.as_ref().unwrap().success);
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Caught);
+    assert!(last_call(&t.g).matched);
+}
+
+#[test]
+fn sims_only_know_what_they_check() {
+    // a careless sim (skill 0) never checks, so the intruder always gets through
+    let mut t = obo_at_mcp(Some((Role::Mcp, Defect::Expiry)));
+    t.g.players[3].bot = true;
+    let sim = t.ids[3].clone();
+    let m = t.g.sim_choice(&sim, 0.0).unwrap();
+    apply(&mut t.g, &sim, m).unwrap();
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Breach);
+
+    // a diligent sim (skill 1) runs every check, then rejects
+    let mut t = obo_at_mcp(Some((Role::Mcp, Defect::Expiry)));
+    t.g.players[3].bot = true;
+    let sim = t.ids[3].clone();
+    let mut steps = 0;
+    while t.g.round.as_ref().unwrap().status == RoundStatus::Playing {
+        let m = t.g.sim_choice(&sim, 1.0).unwrap();
+        apply(&mut t.g, &sim, m).unwrap();
+        steps += 1;
+        assert!(steps < 10);
+    }
+    assert_eq!(steps, 6, "five checks, then the decision");
+    assert_eq!(last_diligence(&t.g).tag, DiligenceTag::Caught);
+    assert!(t.g.round.as_ref().unwrap().result.as_ref().unwrap().success);
+}
+
+#[test]
+fn perfect_sims_beat_every_intruder_in_every_round() {
+    // every learning/assessment scenario, intruder always on, all four seats diligent sims
+    let n = new_game().g.scenarios.len();
+    for i in 3..n {
+        for target in [Role::Mcp, Role::Application] {
+            let mut t = new_game();
+            for p in t.g.players.iter_mut().skip(1) {
+                p.bot = true;
+            }
+            let host = t.ids[0].clone();
+            t.g.host_action(&host, HostAction::Goto, Some(i as u32)).unwrap();
+            t.g.plant_intrusion(target, Defect::Expiry);
+            if t.g.round.as_ref().unwrap().status == RoundStatus::Identify {
+                t.g.identify(&host, Flow::Obo).unwrap();
+            }
+            for _ in 0..80 {
+                let status = t.g.round.as_ref().unwrap().status;
+                if status == RoundStatus::Done {
+                    break;
+                }
+                if let Some(sim) = t.g.next_sim() {
+                    // sims guess during the identify phase and play during the round
+                    let m = t.g.sim_choice(&sim, 1.0).unwrap_or_else(|| panic!("{}: sim stuck", t.g.scenarios[i].id));
+                    apply(&mut t.g, &sim, m).unwrap();
+                } else {
+                    assert_eq!(status, RoundStatus::Playing, "{}: waiting on a guess nobody will make", t.g.scenarios[i].id);
+                    // the human Client: play its right card
+                    let pid = active(&t.g);
+                    let c = best_card(&t.g);
+                    t.g.play(&pid, &c).unwrap();
+                }
+            }
+            let r = t.g.round.as_ref().unwrap();
+            assert_eq!(r.status, RoundStatus::Done, "{}", t.g.scenarios[i].id);
+            assert!(r.result.as_ref().unwrap().success, "{} with an intruder at {:?}: {}", t.g.scenarios[i].id, target, r.result.as_ref().unwrap().explanation);
+        }
+    }
+}

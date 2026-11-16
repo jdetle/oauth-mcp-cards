@@ -256,7 +256,7 @@ export function Board({
         <h3>
           On the wire <span>{ROLE_NAMES[r.inFlight.from]} → {ROLE_NAMES[r.inFlight.to]}</span>
         </h3>
-        <InFlightSlip item={r.inFlight} />
+        <InFlightSlip item={r.inFlight} sealed={r.sealed} />
       </section>
     ) : null}
     </>

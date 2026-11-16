@@ -43,6 +43,29 @@ Colour means the *kind* of call, never right or wrong: red stops (Reject), green
 
 Each card play stays on screen for about five seconds (it holds above the receiver with a countdown bar) so the table can read it. Sims wait that out before moving.
 
+## Have to do vs ought to do
+
+A service has to respond to a request to be functional at all. It only *ought* to check the token first. Skip the check and everything still works, right up to the point where the wrong caller is let through. The game makes that the central tension after the warm-ups:
+
+- **Sealed tokens.** In learning and assessment rounds, a token arriving at the Application or the MCP Server shows nothing: audience, scope, expiry, issuer and subject are hidden from the whole table (the server withholds them) until the receiver plays the check for that field. You only know what you check.
+- **Two kinds of card.** *Have to do*: accept, reject, or make the downstream call. *Ought to do*: the checks. They are free, and nothing forces you to play one.
+- **It works either way.** Accepting blind succeeds whenever the token happens to be fine. The decision is then labelled for what it was:
+
+| Label | Meaning |
+|---|---|
+| verified first | every relevant check was run before trusting (bonus point) |
+| trusted unchecked | it worked; here is what was never checked |
+| breach | something bad was let through; here is the check that would have shown it |
+| caught by a check | refused something bad that a check exposed (bonus point) |
+| refused on a hunch | refused something bad without having looked |
+
+- **Intruders.** In about a third of these rounds (`INTRUDER_RATE`), a correctly issued token is swapped in transit for a look-alike with one defect: a different audience, a different scope, expired, an untrusted issuer, or an application subject on user data. The sender did nothing wrong and keeps their points. Only a check can tell. The swap is revealed when the round ends.
+- **The Application too.** It ought to check the user token it was handed. If that token is dead, the only right move is to stop and ask the user to sign in again; exchanging it is a breach, which the IdP may still catch (defence in depth).
+- **Sims play by the same rule.** A sim knows only what it has checked: a careless one can be fooled, a diligent one cannot.
+- The scoreboard's **Checked** column counts verified / unchecked / breaches per player.
+
+Warm-ups stay fully visible, so audience, scope and issuer are learned before they are hidden.
+
 ## Ready check between rounds
 
 When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If a minute passes with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.
@@ -108,7 +131,7 @@ Open the site, create a room (you get a random name like `amber-falcon`), and sh
 ### How to play
 
 - The active seat glows. Your hand is at the bottom: number keys **1-9** play the highlighted cards. On phones the hand is a drawer that opens on your turn.
-- **Free checks** (Validate Audience, Validate Scope, Registered Key) inspect the slip and log the result without using your turn.
+- **Checks** (Validate Audience, Scope, Expiry, Issuer, Subject; Registered Key) reveal one thing about what you were handed, without using your turn. See *Have to do vs ought to do*.
 - **Reject** ends the round. Rejecting something invalid is a correct call (and scores), even though the chain is broken upstream.
 - **🔔 No user is present!** In learning and assessment rounds, the first player to call it correctly scores a bonus.
 - The **IdP** earns a bonus for refusing a play that uses the wrong flow even if it would technically work.

@@ -9,7 +9,7 @@ export const QUICK_REF: Record<Role, { hold: string; check: string; never: strin
   },
   application: {
     hold: "Your private key, the user's token, stored upstream credentials, the gateway signing key.",
-    check: "Whether a user is present, and what the MCP Server will accept.",
+    check: "Whether a user is present, and what the MCP Server will accept. You ought to check the token you were handed (who it is for, that it hasn't expired), though nothing forces you.",
     never: "Forward a token to an audience it was not issued for.",
   },
   idp: {
@@ -19,7 +19,7 @@ export const QUICK_REF: Record<Role, { hold: string; check: string; never: strin
   },
   mcp: {
     hold: "Nothing until a credential arrives.",
-    check: "Audience equals you, scope covers the request, subject fits the data, signature and issuer are trusted.",
+    check: "Audience equals you, scope covers the request, not expired, issuer trusted, subject fits the data. None of these is required to answer the call. Each one you skip is a way in.",
     never: "Trust the caller's word over the token.",
   },
 };

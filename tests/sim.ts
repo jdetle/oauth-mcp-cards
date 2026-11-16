@@ -129,7 +129,7 @@ export async function startServer(extraEnv: Record<string, string> = {}): Promis
   process.env.INTERNAL_TOKEN = TEST_INTERNAL_TOKEN;
   const port = 20000 + Math.floor(Math.random() * 20000);
   const proc: Subprocess = spawn([bin], {
-    env: { ...process.env, PORT: String(port), SCENARIOS_DIR: `${ROOT}/scenarios`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN, ...extraEnv },
+    env: { ...process.env, PORT: String(port), SCENARIOS_DIR: `${ROOT}/scenarios`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN, INTRUDER_RATE: "0", ...extraEnv },
     stdout: "ignore",
     stderr: "ignore",
   });
