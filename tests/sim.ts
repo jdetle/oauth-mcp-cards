@@ -1,26 +1,37 @@
-// Simulated players that talk to a real PartyKit server over HTTP + WebSocket.
-import { spawn, type Subprocess } from "bun";
+// Simulated players that talk to the real Rust server over HTTP + WebSocket.
+import { spawn, spawnSync, type Subprocess } from "bun";
+import { existsSync, readdirSync } from "node:fs";
 import type { ClientMessage, PrivateView, PublicState, Role, ServerMessage } from "../src/game/types.ts";
 
+const ROOT = `${import.meta.dir}/..`;
+export const TEST_INTERNAL_TOKEN = "test-internal-token-0123456789";
+export const SCENARIO_COUNT = readdirSync(`${ROOT}/scenarios`).filter((f) => f.endsWith(".json")).length;
+
+export interface Joined {
+  ok: boolean;
+  status: number;
+  room: string;
+  playerId: string;
+  cookie: string;
+  error?: string;
+}
+
+async function post(url: string, body: unknown, headers: Record<string, string> = {}): Promise<Joined> {
+  const res = await fetch(url, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", ...headers } });
+  const data = (await res.json().catch(() => ({}))) as Record<string, string>;
+  const setCookie = res.headers.get("set-cookie") ?? "";
+  return { ok: res.ok, status: res.status, room: data.room ?? "", playerId: data.playerId ?? "", error: data.error, cookie: setCookie.split(";")[0] ?? "" };
+}
+
 export async function createRoom(host: string, password: string, displayName: string, role: Role | "auto" = "auto") {
-  const secret = process.env.INTERNAL_SECRET;
-  const res = await fetch(`http://${host}/parties/lobby/main`, {
-    method: "POST",
-    headers: secret ? { "x-omcp-internal": secret } : {},
-    body: JSON.stringify({ action: "create", password, displayName, role }),
-  });
-  const body = (await res.json()) as { room: string; session: string; playerId: string; error?: string };
-  if (!res.ok) throw new Error(`create failed: ${res.status} ${body.error}`);
-  return body;
+  const token = process.env.INTERNAL_TOKEN;
+  const r = await post(`http://${host}/api/rooms`, { password, displayName, role: role === "auto" ? undefined : role }, token ? { "x-omcp-internal": token } : {});
+  if (!r.ok) throw new Error(`create failed: ${r.status} ${r.error}`);
+  return r;
 }
 
 export async function joinRoom(host: string, room: string, password: string, displayName: string, role: Role | "auto" | "spectate" = "auto") {
-  const res = await fetch(`http://${host}/parties/main/${room}`, {
-    method: "POST",
-    body: JSON.stringify({ action: "join", password, displayName, role }),
-  });
-  const body = (await res.json()) as { room: string; session: string; playerId: string; error?: string };
-  return { ok: res.ok, status: res.status, ...body };
+  return post(`http://${host}/api/rooms/${room}/join`, { password, displayName, role: role === "auto" ? undefined : role });
 }
 
 export class SimPlayer {
@@ -32,13 +43,13 @@ export class SimPlayer {
   keepRaw = false;
   closed = false;
   closeCode = 0;
-  private listeners: (() => void)[] = [];
   version = 0;
+  private listeners: (() => void)[] = [];
 
-  constructor(readonly host: string, readonly room: string, readonly session: string, readonly name: string) {}
+  constructor(readonly host: string, readonly room: string, readonly cookie: string, readonly name: string) {}
 
-  static async connect(host: string, room: string, session: string, name: string, keepRaw = false) {
-    const p = new SimPlayer(host, room, session, name);
+  static async connect(host: string, room: string, cookie: string, name: string, keepRaw = false) {
+    const p = new SimPlayer(host, room, cookie, name);
     p.keepRaw = keepRaw;
     await p.open();
     return p;
@@ -46,7 +57,8 @@ export class SimPlayer {
 
   open(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(`ws://${this.host}/parties/main/${this.room}?session=${encodeURIComponent(this.session)}`);
+      // Bun's WebSocket accepts headers, so we present the session cookie like a browser would
+      this.ws = new WebSocket(`ws://${this.host}/ws/${this.room}`, { headers: { cookie: this.cookie } } as never);
       const t = setTimeout(() => reject(new Error("connect timeout")), 10_000);
       this.ws.onmessage = (ev) => {
         const text = String(ev.data);
@@ -73,11 +85,10 @@ export class SimPlayer {
     });
   }
 
-  send(msg: ClientMessage | string) {
-    this.ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
+  send(msg: ClientMessage | string | Uint8Array<ArrayBuffer>) {
+    this.ws.send(typeof msg === "string" || msg instanceof Uint8Array ? msg : JSON.stringify(msg));
   }
 
-  /** Resolve when pred() is true (checked after every message). */
   waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
     if (pred()) return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -99,38 +110,41 @@ export class SimPlayer {
   }
 }
 
-/** Start `partykit dev` on a free port unless PK_HOST is set. */
+/** Start the Rust server (release build) on a free port, unless API_HOST is set. */
 export async function startServer(): Promise<{ host: string; stop: () => void }> {
-  if (process.env.PK_HOST) return { host: process.env.PK_HOST, stop: () => {} };
-  process.env.INTERNAL_SECRET = "test-secret-0123456789abcdef";
+  if (process.env.API_HOST) return { host: process.env.API_HOST, stop: () => {} };
+  const bin = `${ROOT}/server/target/release/oauth-mcp-server`;
+  if (!existsSync(bin)) {
+    const b = spawnSync(["cargo", "build", "--release", "-q"], { cwd: `${ROOT}/server`, stdout: "inherit", stderr: "inherit" });
+    if (b.exitCode !== 0) throw new Error("cargo build failed");
+  }
+  process.env.INTERNAL_TOKEN = TEST_INTERNAL_TOKEN;
   const port = 20000 + Math.floor(Math.random() * 20000);
-  const proc: Subprocess = spawn(["bunx", "partykit", "dev", "--port", String(port)], {
-    cwd: `${import.meta.dir}/..`,
-    env: { ...process.env },
+  const proc: Subprocess = spawn([bin], {
+    env: { ...process.env, PORT: String(port), SCENARIOS_DIR: `${ROOT}/scenarios`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN },
     stdout: "ignore",
     stderr: "ignore",
   });
   const host = `127.0.0.1:${port}`;
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 100; i++) {
     try {
-      const r = await fetch(`http://${host}/parties/lobby/main`);
-      if (r.ok) return { host, stop: () => proc.kill() };
+      if ((await fetch(`http://${host}/api/health`)).ok) return { host, stop: () => proc.kill() };
     } catch {}
-    await Bun.sleep(500);
+    await Bun.sleep(100);
   }
   proc.kill();
-  throw new Error("partykit dev did not start");
+  throw new Error("server did not start");
 }
 
 /** Create a room and seat four players. */
 export async function fullTable(host: string, password = "pw-1234") {
   const created = await createRoom(host, password, "Client-bot", "client");
-  const sessions = [created];
+  const sessions: Joined[] = [created];
   for (const role of ["application", "idp", "mcp"] as Role[]) {
     const j = await joinRoom(host, created.room, password, `${role}-bot`, role);
     if (!j.ok) throw new Error(`join failed ${j.status} ${j.error}`);
     sessions.push(j);
   }
-  const players = await Promise.all(sessions.map((s, i) => SimPlayer.connect(host, created.room, s.session, `p${i}`)));
-  return { room: created.room, players, password };
+  const players = await Promise.all(sessions.map((s, i) => SimPlayer.connect(host, created.room, s.cookie, `p${i}`)));
+  return { room: created.room, players, password, sessions };
 }

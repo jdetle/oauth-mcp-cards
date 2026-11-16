@@ -1,6 +1,5 @@
-// End to end: a real PartyKit server, four simulated clients, one full OBO round.
+// End to end: the real Rust server, four simulated clients, one full OBO round.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { SCENARIOS } from "../src/game/scenarios.ts";
 import { ROLES } from "../src/game/types.ts";
 import { fullTable, joinRoom, SimPlayer, startServer } from "./sim.ts";
 
@@ -20,9 +19,10 @@ test(
 
     // a spectator joins: sees the table but no hand
     const spec = await joinRoom(server.host, room, password, "Watcher", "spectate");
-    const watcher = await SimPlayer.connect(server.host, room, spec.session, "watcher", true);
+    const watcher = await SimPlayer.connect(server.host, room, spec.cookie, "watcher", true);
 
-    const obo = SCENARIOS.findIndex((s) => s.id === "learning-obo");
+    const obo = client.state!.rounds.findIndex((r) => r.title === "Learning: On-Behalf-Of");
+    expect(obo).toBeGreaterThan(0);
     client.send({ t: "host", action: "goto", round: obo });
     await client.waitFor(() => client.state?.round?.index === obo && client.you!.canPlay.length > 0);
 
@@ -65,9 +65,9 @@ test(
     for (const raw of watcher.raw) for (const ids of handIds.values()) for (const id of ids) expect(raw.includes(id)).toBe(false);
 
     // reconnect keeps the seat
-    const appSession = app.session;
+    const appCookie = app.cookie;
     app.close();
-    const again = await SimPlayer.connect(server.host, room, appSession, "app-again");
+    const again = await SimPlayer.connect(server.host, room, appCookie, "app-again");
     expect(again.you!.role).toBe(ROLES[1]);
     for (const p of [...players, watcher, again]) p.close();
   },
@@ -85,8 +85,17 @@ test("wrong password is refused and then rate limited", async () => {
 
 test("a socket without a valid session is closed", async () => {
   const { room, players } = await fullTable(server.host);
-  const intruder = await SimPlayer.connect(server.host, room, "forged.session", "intruder");
+  const forged = `omcp_${room.replaceAll("-", "_")}=someone.0000`;
+  const intruder = await SimPlayer.connect(server.host, room, forged, "intruder");
   await intruder.waitFor(() => intruder.closed);
   expect(intruder.state).toBeNull();
+  expect(intruder.closeCode).toBe(4401);
+  // a valid cookie for one room doesn't open another
+  const { room: other, players: others } = await fullTable(server.host);
+  const crossCookie = players[0]!.cookie.replace(`omcp_${room.replaceAll("-", "_")}`, `omcp_${other.replaceAll("-", "_")}`);
+  const cross = await SimPlayer.connect(server.host, other, crossCookie, "cross");
+  await cross.waitFor(() => cross.closed);
+  expect(cross.state).toBeNull();
+  for (const p of others) p.close();
   for (const p of players) p.close();
 }, 30_000);

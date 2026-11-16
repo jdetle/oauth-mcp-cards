@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ROLES, ROLE_NAMES } from "../game/types.ts";
-import { createRoom, joinRoom, rememberName, saveSession, type SeatChoice } from "./api.ts";
+import { createRoom, joinRoom, rememberName, type SeatChoice } from "./api.ts";
 
 export function SeatSelect({ value, onChange, id }: { value: SeatChoice; onChange: (v: SeatChoice) => void; id: string }) {
   return (
@@ -39,9 +39,7 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
     const res = room ? await joinRoom(room, password, name.trim(), seat) : await createRoom(password, name.trim(), seat);
     setBusy(false);
     if (!res.ok) return setError(String(res.data.error ?? "Couldn't join."));
-    const r = String(res.data.room);
-    saveSession(r, { session: String(res.data.session), playerId: String(res.data.playerId) });
-    onJoined(r);
+    onJoined(String(res.data.room));
   }
 
   return (

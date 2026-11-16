@@ -1,16 +1,15 @@
 // Load / stress test: N concurrent rooms, four simulated players each, full games.
-// Usage: bun scripts/load.ts [--rooms 50] [--host 127.0.0.1:1999] [--rounds 28]
-// With no --host it starts its own `partykit dev`.
-import { SCENARIOS } from "../src/game/scenarios.ts";
+// Usage: bun scripts/load.ts [--rooms 50] [--host 127.0.0.1:8080] [--rounds 28]
+// With no --host it starts its own Rust server (release build).
 import { FREE_CARDS, FLOWS, type RoundResult } from "../src/game/types.ts";
-import { fullTable, SimPlayer, startServer } from "../tests/sim.ts";
+import { fullTable, SCENARIO_COUNT, SimPlayer, startServer } from "../tests/sim.ts";
 
 const arg = (name: string, def: string) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1]! : def;
 };
 const ROOMS = Number(arg("rooms", "50"));
-const ROUNDS = Math.min(Number(arg("rounds", String(SCENARIOS.length))), SCENARIOS.length);
+const ROUNDS = Math.min(Number(arg("rounds", String(SCENARIO_COUNT))), SCENARIO_COUNT);
 const server = process.argv.includes("--host") ? { host: arg("host", ""), stop: () => {} } : await startServer();
 
 const latencies: number[] = [];

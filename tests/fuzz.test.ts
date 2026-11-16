@@ -1,10 +1,7 @@
-// Fuzzing: random / malformed / forged / out-of-turn input must be rejected without
+// Live fuzzing against the Rust server (parser/engine fuzz runs in `cargo test`): random / malformed / forged / out-of-turn input must be rejected without
 // crashing the server or leaking another player's hand.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { GameError } from "../src/game/engine.ts";
-import { parseClientMessage } from "../src/game/protocol.ts";
 import { FLOWS, ROLES } from "../src/game/types.ts";
-import { newGame } from "./helpers.ts";
 import { fullTable, SimPlayer, startServer } from "./sim.ts";
 
 let seed = 1234567;
@@ -33,54 +30,7 @@ function junkMessage(cardIds: string[]): string {
   ])();
 }
 
-describe("in-process fuzz", () => {
-  test("parser never throws and only accepts well-formed messages", () => {
-    for (let i = 0; i < 20_000; i++) {
-      const raw = junkMessage(["c1", "c2"]);
-      const m = parseClientMessage(raw);
-      if (m) expect(["play", "sit", "identify", "host", "tell", "start", "stand", "ping"]).toContain(m.t);
-    }
-    expect(parseClientMessage(new ArrayBuffer(8))).toBeNull();
-  });
-
-  test("engine survives random messages from random players; invariants hold", () => {
-    const { g, host } = newGame();
-    g.start(host);
-    const ids = g.state.players.map((p) => p.id).concat(["ghost"]);
-    let gameErrors = 0;
-    for (let i = 0; i < 20_000; i++) {
-      const who = pick(ids);
-      const view = g.player(who) ? g.privateView(who) : null;
-      const cards = view?.hand.map((h) => h.id) ?? [];
-      // mix of plausible moves (to make progress) and garbage
-      const raw = rnd() < 0.5 && view?.canPlay.length ? JSON.stringify({ t: "play", cardId: pick(view.canPlay) }) : junkMessage(cards);
-      const m = parseClientMessage(raw);
-      if (!m) continue;
-      try {
-        if (m.t === "play") g.play(who, m.cardId);
-        else if (m.t === "sit") g.sit(who, m.role);
-        else if (m.t === "identify") g.identify(who, m.flow);
-        else if (m.t === "tell") g.tell(who);
-        else if (m.t === "host") g.hostAction(who, m.action, m.round);
-        else if (m.t === "start") g.start(who);
-      } catch (e) {
-        if (!(e instanceof GameError)) throw e; // anything else is a crash
-        gameErrors++;
-      }
-      // invariants
-      const roles = g.state.players.map((p) => p.role).filter(Boolean);
-      expect(new Set(roles).size).toBe(roles.length);
-      const r = g.state.round;
-      if (r) {
-        const all = ROLES.flatMap((role) => r.hands[role].map((c) => c.id));
-        expect(new Set(all).size).toBe(all.length);
-      }
-    }
-    expect(gameErrors).toBeGreaterThan(0);
-  });
-});
-
-describe("live fuzz against PartyKit", () => {
+describe("live fuzz against the server", () => {
   let server: { host: string; stop: () => void };
   beforeAll(async () => {
     server = await startServer();
@@ -100,7 +50,7 @@ describe("live fuzz against PartyKit", () => {
 
       for (let i = 0; i < 300; i++) {
         attacker.send(junkMessage(victimCards));
-        if (i % 50 === 0) attacker.ws.send(new Uint8Array([0, 1, 2, 255]));
+        if (i % 50 === 0) attacker.send(new Uint8Array([0, 1, 2, 255]) as Uint8Array<ArrayBuffer>);
         if (i % 25 === 0) await Bun.sleep(300); // stay mostly under the per-socket rate limit
       }
       for (const id of victimCards) attacker.send({ t: "play", cardId: id }); // someone else's cards

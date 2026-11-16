@@ -1,5 +1,4 @@
 "use client";
-import PartySocket from "partysocket";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QUICK_REF } from "../game/reference.ts";
 import {
@@ -14,52 +13,67 @@ import {
   type Role,
   type ServerMessage,
 } from "../game/types.ts";
-import { forgetSession, loadSession, PARTY_HOST } from "./api.ts";
+import { wsUrl } from "./api.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { InFlightSlip, TokenSlip } from "./Slip.tsx";
 
 type Conn = "connecting" | "open" | "closed" | "unauthorized";
 
-function useGame(room: string, session: string | null) {
+/** WebSocket with automatic reconnect. The session cookie authenticates it; close code 4401 = not joined. */
+function useGame(room: string, attempt: number) {
   const [state, setState] = useState<PublicState | null>(null);
   const [you, setYou] = useState<PrivateView | null>(null);
   const [conn, setConn] = useState<Conn>("connecting");
   const [error, setError] = useState<string | null>(null);
-  const sock = useRef<PartySocket | null>(null);
+  const sock = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    if (!session) return;
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let backoff = 500;
     setConn("connecting");
-    const ws = new PartySocket({ host: PARTY_HOST, party: "main", room, query: { session } });
-    sock.current = ws;
-    ws.addEventListener("open", () => setConn("open"));
-    ws.addEventListener("close", (e) => {
-      if (e.code === 4401) {
-        ws.close();
-        setConn("unauthorized");
-      } else setConn((c) => (c === "unauthorized" ? c : "closed"));
-    });
-    ws.addEventListener("message", (e) => {
-      let m: ServerMessage;
-      try {
-        m = JSON.parse(String(e.data));
-      } catch {
-        return;
-      }
-      if (m.t === "state") {
-        setState(m.state);
-        setYou(m.you);
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const connect = () => {
+      const ws = new WebSocket(wsUrl(room));
+      sock.current = ws;
+      // if the socket opens but no state arrives, drop it and reconnect
+      watchdog = setTimeout(() => ws.readyState !== WebSocket.CLOSED && ws.close(), 6000);
+      ws.onopen = () => {
+        backoff = 500;
         setConn("open");
-      } else if (m.t === "error") {
-        setError(m.message);
-      }
-    });
-    const ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "ping" })), 25_000);
-    return () => {
-      clearInterval(ping);
-      ws.close();
+      };
+      ws.onclose = (e) => {
+        if (stopped) return;
+        if (e.code === 4401) return setConn("unauthorized");
+        setConn("closed");
+        retry = setTimeout(connect, backoff);
+        backoff = Math.min(backoff * 2, 8000);
+      };
+      ws.onmessage = (e) => {
+        let m: ServerMessage;
+        try {
+          m = JSON.parse(String(e.data));
+        } catch {
+          return;
+        }
+        if (m.t === "state") {
+          if (watchdog) clearTimeout(watchdog);
+          setState(m.state);
+          setYou(m.you);
+          setConn("open");
+        } else if (m.t === "error") setError(m.message);
+      };
     };
-  }, [room, session]);
+    connect();
+    const ping = setInterval(() => sock.current?.readyState === WebSocket.OPEN && sock.current.send(JSON.stringify({ t: "ping" })), 25_000);
+    return () => {
+      stopped = true;
+      if (retry) clearTimeout(retry);
+      if (watchdog) clearTimeout(watchdog);
+      clearInterval(ping);
+      sock.current?.close();
+    };
+  }, [room, attempt]);
 
   useEffect(() => {
     if (!error) return;
@@ -67,41 +81,30 @@ function useGame(room: string, session: string | null) {
     return () => clearTimeout(t);
   }, [error]);
 
-  const send = useCallback((m: ClientMessage) => sock.current?.send(JSON.stringify(m)), []);
-  return { state, you, conn, error, send, setError };
+  const send = useCallback((m: ClientMessage) => {
+    if (sock.current?.readyState === WebSocket.OPEN) sock.current.send(JSON.stringify(m));
+  }, []);
+  return { state, you, conn, error, send };
 }
 
 export function Table({ room }: { room: string }) {
-  const [session, setSession] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
-  useEffect(() => {
-    setSession(loadSession(room)?.session ?? null);
-    setChecked(true);
-  }, [room]);
-  const g = useGame(room, session);
+  const [attempt, setAttempt] = useState(0);
+  const g = useGame(room, attempt);
 
-  if (!checked) return <main className="wrap">Loading…</main>;
-  if (!session || g.conn === "unauthorized") {
+  if (g.conn === "unauthorized") {
     return (
       <main className="wrap stack">
         <a href="/">← Lobby</a>
         <section className="panel stack">
           <h1 className="room-name">{room}</h1>
-          <p className="muted">{g.conn === "unauthorized" ? "Your seat in this room has expired. Join again." : "Enter the room password to join."}</p>
-          <JoinForm
-            room={room}
-            autoFocus
-            onJoined={() => {
-              const s = loadSession(room);
-              setSession(s?.session ?? null);
-            }}
-          />
+          <p className="muted">Enter the room password to join.</p>
+          <JoinForm room={room} autoFocus onJoined={() => setAttempt((a) => a + 1)} />
         </section>
       </main>
     );
   }
   if (!g.state || !g.you) return <main className="wrap">Connecting to {room}…</main>;
-  return <Game room={room} state={g.state} you={g.you} conn={g.conn} error={g.error} send={g.send} leave={() => { forgetSession(room); location.href = "/"; }} />;
+  return <Game room={room} state={g.state} you={g.you} conn={g.conn} error={g.error} send={g.send} leave={() => { location.href = "/"; }} />;
 }
 
 function Game(props: {
