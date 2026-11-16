@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listRooms } from "./api.ts";
 import { JoinForm } from "./JoinForm.tsx";
+import { TimesTable } from "./Seal.tsx";
 
 export function Lobby() {
   const router = useRouter();
@@ -30,11 +31,18 @@ export function Lobby() {
   return (
     <main className="wrap">
       <div className="hero">
-        <h1>OAuth for MCP: the card game</h1>
-        <p className="muted" style={{ margin: 0 }}>
-          Four players: Client, Application, Identity Provider, MCP Server. Pass token slips, make the right call, keep the chain unbroken.{" "}
-          <a href="/reference/">Gateway auth reference</a>
-        </p>
+        <div>
+          <p className="kicker">A card game about who to trust</p>
+          <h1>OAuth<i>//</i>MCP</h1>
+          <p className="lede">
+            Four seats: Client, Application, Identity Provider, MCP Server. Pass token slips, make the right call at your step, and keep the chain unbroken.
+          </p>
+          <div className="row">
+            <a href="/learn/">How signatures work →</a>
+            <a href="/reference/">Gateway auth reference →</a>
+          </div>
+        </div>
+        <TimesTable className="hero-table" />
       </div>
       <div className="lobby">
         <section className="panel stack" aria-labelledby="rooms-h">

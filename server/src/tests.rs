@@ -381,3 +381,91 @@ fn fuzz_engine_survives_random_input_and_keeps_invariants() {
     }
     assert!(refused > 0);
 }
+
+// ---- sims ---------------------------------------------------------------------------------------
+
+#[test]
+fn sims_fill_empty_seats_and_finish_a_round() {
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut g = Game::new("solo", scenarios()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+    let me = g.add_player("Solo", Some(Role::Client), false).id;
+    assert!(g.start(&me).is_err(), "can't start with empty seats");
+    g.host_action(&me, HostAction::AddBots, None).unwrap();
+    assert_eq!(g.seated_roles().len(), 4);
+    assert_eq!(g.players.iter().filter(|p| p.bot).count(), 3);
+    assert!(g.host_action(&me, HostAction::AddBots, None).is_err(), "no empty seats left");
+    // perfect sims + a perfect human finish every learning round with an unbroken chain
+    for i in 3..13 {
+        g.host_action(&me, HostAction::Goto, Some(i)).unwrap();
+        for _ in 0..40 {
+            let r = g.round.as_ref().unwrap();
+            if r.status == RoundStatus::Done {
+                break;
+            }
+            if let Some(sim) = g.next_sim() {
+                let m = g.sim_choice(&sim, 1.0).expect("sim has a move");
+                apply(&mut g, &sim, m).unwrap();
+            } else {
+                let pid = active(&g);
+                assert_eq!(pid, me);
+                let c = best_card(&g);
+                g.play(&pid, &c).unwrap();
+            }
+        }
+        let r = g.round.as_ref().unwrap();
+        assert_eq!(r.status, RoundStatus::Done);
+        assert!(r.result.as_ref().unwrap().success, "{}", g.scenarios[i as usize].id);
+    }
+}
+
+#[test]
+fn humans_take_over_sim_seats_and_host_removes_sims() {
+    let mut t = new_game();
+    let host = t.ids[0].clone();
+    t.g.players.retain(|p| p.id == host); // only the host is left
+    t.g.host_action(&host, HostAction::AddBots, None).unwrap();
+    let i = index_of(&t.g, "learning-obo");
+    t.g.host_action(&host, HostAction::Goto, Some(i)).unwrap();
+    // a human joins mid-round and takes the IdP seat from its sim
+    let bob = t.g.add_player("Bob", Some(Role::Idp), false);
+    assert_eq!(bob.role, Some(Role::Idp));
+    assert_eq!(t.g.round.as_ref().unwrap().seats.idp.as_deref(), Some(bob.id.as_str()));
+    assert_eq!(t.g.players.iter().filter(|p| p.bot).count(), 2);
+    assert!(!t.g.private_view(&bob.id).hand.is_empty(), "inherits the sim's hand");
+    // sims can't be removed mid-round, or by non-hosts
+    assert!(t.g.host_action(&host, HostAction::RemoveBots, None).is_err());
+    solve(&mut t.g);
+    assert!(t.g.host_action(&bob.id, HostAction::RemoveBots, None).is_err());
+    t.g.host_action(&host, HostAction::RemoveBots, None).unwrap();
+    assert_eq!(t.g.players.iter().filter(|p| p.bot).count(), 0);
+}
+
+#[test]
+fn sims_are_marked_on_the_wire() {
+    let mut t = new_game();
+    let host = t.ids[0].clone();
+    t.g.players.retain(|p| p.id == host);
+    t.g.host_action(&host, HostAction::AddBots, None).unwrap();
+    let v = serde_json::to_value(t.g.public_state(&|_| false, 0)).unwrap();
+    let players = v["players"].as_array().unwrap();
+    assert_eq!(players.iter().filter(|p| p["bot"] == true).count(), 3);
+    assert!(players.iter().filter(|p| p["bot"] == true).all(|p| p["connected"] == true));
+    assert!(parse_client_message(r#"{"t":"host","action":"addBots"}"#).is_some());
+}
+
+#[test]
+fn only_public_keys_are_ever_sent() {
+    let mut t = new_game();
+    let i = index_of(&t.g, "learning-jag");
+    t.g.host_action(&t.ids[0].clone(), HostAction::Goto, Some(i)).unwrap();
+    solve(&mut t.g);
+    let public = serde_json::to_string(&t.g.public_state(&|_| true, 0)).unwrap();
+    assert!(public.contains(&t.g.keys.app.public_key));
+    assert!(public.contains(&t.g.keys.gateway.public_key));
+    for secret in [&t.g.keys.app.secret_key, &t.g.keys.gateway.secret_key, &t.g.keys.sigv4_secret] {
+        assert!(!public.contains(secret.as_str()), "a private key leaked into public state");
+        for id in &t.ids {
+            assert!(!serde_json::to_string(&t.g.private_view(id)).unwrap().contains(secret.as_str()));
+        }
+    }
+}

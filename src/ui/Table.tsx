@@ -15,8 +15,9 @@ import {
 } from "../game/types.ts";
 import { wsUrl } from "./api.ts";
 import { JoinForm } from "./JoinForm.tsx";
-import { Board, ScrambleSuit, ScrambleText, TrapDoor } from "./Board.tsx";
+import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
+import { KeysContext, Seal } from "./Seal.tsx";
 import { TokenSlip } from "./Slip.tsx";
 
 type Conn = "connecting" | "open" | "closed" | "unauthorized";
@@ -146,20 +147,11 @@ function Game(props: {
   };
 
   return (
+    <KeysContext.Provider value={state.keys}>
     <main className="wrap">
       <div className="game">
         <div className="stack" style={{ minWidth: 0 }}>
-          <header className="topbar">
-            <div className="title">
-              <a href="/" aria-label="Back to lobby">←</a>
-              <h1 className="room-name" style={{ margin: 0 }}><span className="sector">sector</span> {props.room}</h1>
-              {r ? <span className="pill">{r.phase} · round {r.index + 1}/{state.rounds.length}</span> : <span className="pill">not started</span>}
-              <span className="pill" aria-live="polite">{conn === "open" ? "connected" : "reconnecting…"}</span>
-            </div>
-            <div className="row small">
-              You are <b>{you.name}</b> · {you.role ? ROLE_NAMES[you.role] : "spectator"}
-            </div>
-          </header>
+          <Hud room={props.room} state={state} you={you} conn={conn} role={myRoundRole ?? you.role} />
 
           {error ? <div className="error" role="alert">{error}</div> : null}
 
@@ -169,6 +161,14 @@ function Game(props: {
             <section className="panel stack">
               <h2>{state.players.filter((p) => p.role).length === 4 ? "All four ports live" : "Waiting for four players"}</h2>
               <p className="muted small">Share the room name <b>{props.room}</b> and the password. {state.players.filter((p) => p.role).length}/4 seats filled.</p>
+              {state.players.filter((p) => p.role).length < 4 ? (
+                <div className="row">
+                  <button className="primary" onClick={() => send({ t: "host", action: "addBots" })}>
+                    Fill {4 - state.players.filter((p) => p.role).length} empty seat{4 - state.players.filter((p) => p.role).length === 1 ? "" : "s"} with sims
+                  </button>
+                  <span className="muted small">Sims play the other roles for you. Anyone who joins later takes over a sim's seat.</span>
+                </div>
+              ) : null}
               {you.isHost ? <p className="small">When all four seats are filled, press <b>Start game</b>.</p> : <p className="small">The host starts the game.</p>}
             </section>
           ) : (
@@ -203,6 +203,11 @@ function Game(props: {
                 </button>
                 <span className="muted small">{myTurn ? "Your turn: press 1–9 or tap a highlighted card" : "Wait for your turn"}</span>
               </div>
+              {myTurn && r.inFlight && r.slips.length ? (
+                <p className="incoming">
+                  <b>Incoming</b> from {ROLE_NAMES[r.inFlight.from]}: {r.slips[r.slips.length - 1]!.label}
+                </p>
+              ) : null}
               <div id="hand-body" className="hand-body">
               {you.slips.length ? (
                 <div className="my-slips" aria-label="Token slips you hold">
@@ -233,6 +238,44 @@ function Game(props: {
         <Side state={state} you={you} send={send} myRoundRole={myRoundRole} leave={props.leave} />
       </div>
     </main>
+    </KeysContext.Provider>
+  );
+}
+
+const PHASE_LABEL: Record<string, string> = { warmup: "Warm-up", learning: "Learning", assessment: "Assessment" };
+
+/** One slim bar: where you are, how far through the game, who you are. */
+function Hud({ room, state, you, conn, role }: { room: string; state: PublicState; you: PrivateView; conn: Conn; role: Role | null }) {
+  const r = state.round;
+  const phases = ["warmup", "learning", "assessment"] as const;
+  return (
+    <header className="hud">
+      <a className="brand" href="/" aria-label="Back to lobby">
+        OAUTH<i>//</i>MCP
+      </a>
+      <div className="hud-room">
+        <span>room</span>
+        <b>{room}</b>
+      </div>
+      <div className="hud-progress" aria-label={r ? `${PHASE_LABEL[r.phase]}, round ${r.index + 1} of ${state.rounds.length}` : "Not started"}>
+        <div className="ticks" aria-hidden>
+          {phases.map((ph) => (
+            <span key={ph} className={`phase${r?.phase === ph ? " now" : ""}`}>
+              {state.rounds.filter((x) => x.phase === ph).map((x) => (
+                <i key={x.index} className={r ? (x.index < r.index ? "done" : x.index === r.index ? "cur" : "") : ""} />
+              ))}
+            </span>
+          ))}
+        </div>
+        <div className="hud-label">{r ? <>{PHASE_LABEL[r.phase]} <b>{r.index + 1}</b>/{state.rounds.length}</> : "Not started"}</div>
+      </div>
+      <div className={`hud-me${role ? ` r-${role}` : ""}`}>
+        <span className={`conn ${conn === "open" ? "on" : "off"}`} role="status" aria-label={conn === "open" ? "Connected" : "Reconnecting"} title={conn === "open" ? "Connected" : "Reconnecting…"} />
+        <ScrambleSuit id={you.playerId} size={20} />
+        <b>{you.name}</b>
+        <span className="role-chip">{role ? ROLE_NAMES[role] : "Spectator"}</span>
+      </div>
+    </header>
   );
 }
 
@@ -241,21 +284,22 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
   const [target, setTarget] = useState(r?.index ?? 0);
   useEffect(() => setTarget(r?.index ?? 0), [r?.index]);
   return (
-    <section className="panel row" aria-label="Host controls">
-      <strong className="small">Host</strong>
+    <section className="hostbar" aria-label="Host controls">
+      <span className="hostbar-label">Host</span>
       {!state.started ? <button className="primary" onClick={() => send({ t: "start" })}>Start game</button> : null}
       {r?.status === "done" ? <button className="primary" onClick={() => send({ t: "host", action: "next" })} disabled={r.index + 1 >= state.rounds.length}>Next round</button> : null}
-      {r ? <button onClick={() => send({ t: "host", action: "replay" })}>Replay round</button> : null}
+      {r ? <button onClick={() => send({ t: "host", action: "replay" })}>Replay</button> : null}
       {r?.status === "identify" ? <button onClick={() => send({ t: "host", action: "forceReveal" })}>Start play now</button> : null}
+      {state.players.some((p) => p.bot) && (!r || r.status === "done") ? <button onClick={() => send({ t: "host", action: "removeBots" })}>Remove sims</button> : null}
       <label className="row" style={{ display: "flex", gap: 6 }}>
         <span className="sr-only">Jump to round</span>
-        <select aria-label="Jump to round" value={target} onChange={(e) => setTarget(Number(e.target.value))} style={{ width: "auto", minWidth: 200 }}>
+        <select aria-label="Jump to round" value={target} onChange={(e) => setTarget(Number(e.target.value))}>
           {state.rounds.map((x) => (
             <option key={x.index} value={x.index}>{x.index + 1}. {x.title}</option>
           ))}
         </select>
       </label>
-      <button onClick={() => send({ t: "host", action: "goto", round: target })}>Go (skip)</button>
+      <button onClick={() => send({ t: "host", action: "goto", round: target })}>Jump</button>
     </section>
   );
 }
@@ -282,8 +326,8 @@ function Result({ state, you, send }: { state: PublicState; you: PrivateView; se
   return (
     <section className={`panel result stack ${res.success ? "ok" : "bad"}`} aria-labelledby="res-h" aria-live="polite">
       <div className="result-head">
-        {res.success ? <span className="seal" aria-hidden>◆</span> : <TrapDoor open />}
-        <h2 id="res-h">{res.success ? "Chain unbroken" : `Trap door: chain broken at ${ROLE_NAMES[res.failedStep!.role]} (${res.failedStep!.playerName})`}</h2>
+        {res.success ? <span className="seal" aria-hidden>◆</span> : <BitGlyph />}
+        <h2 id="res-h">{res.success ? "Chain unbroken" : `Chain broken at ${ROLE_NAMES[res.failedStep!.role]} (${res.failedStep!.playerName})`}</h2>
       </div>
       {res.failedStep ? <p style={{ margin: 0 }}><b>The move:</b> {res.failedStep.text}</p> : null}
       <p style={{ margin: 0 }}>{res.explanation}</p>
@@ -324,7 +368,21 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
           <div><b>You hold:</b> {QUICK_REF[role].hold}</div>
           <div><b>You check:</b> {QUICK_REF[role].check}</div>
           <div><b>Never:</b> {QUICK_REF[role].never}</div>
-          <a href="/reference/" target="_blank" rel="noreferrer">All auth flows →</a>
+          <div className="keyring" aria-label="Public keys on this table">
+            <figure>
+              <Seal of={state.keys.application} size={46} label="The Application's registered public key" />
+              <figcaption>Application<br />public key</figcaption>
+            </figure>
+            <figure>
+              <Seal of={state.keys.gateway} size={46} label="The gateway's public signing key" />
+              <figcaption>Gateway<br />public key</figcaption>
+            </figure>
+            <p>Public keys are for everyone. A signature whose seal was made with the matching private key will check out against these.</p>
+          </div>
+          <div className="row">
+            <a href="/reference/" target="_blank" rel="noreferrer">All auth flows →</a>
+            <a href="/learn/" target="_blank" rel="noreferrer">How signatures work →</a>
+          </div>
         </section>
       ) : null}
       <section className="panel stack">
@@ -349,7 +407,7 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
             <tbody>
               {players.map((p) => (
                 <tr key={p.id}>
-                  <td><span className="who-cell"><ScrambleSuit id={p.id} size={20} still={!p.connected} /><span>{p.name}{p.isHost ? " ★" : ""}<div className="muted small">{p.role ? ROLE_NAMES[p.role] : "spectator"}</div></span></span></td>
+                  <td><span className="who-cell"><ScrambleSuit id={p.id} size={20} still={!p.connected} /><span>{p.name}{p.isHost ? " ★" : ""}{p.bot ? <span className="sim-tag">sim</span> : null}<div className="muted small">{p.role ? ROLE_NAMES[p.role] : "spectator"}</div></span></span></td>
                   <td className="num">{p.score.calls}</td>
                   <td className="num">{p.score.identify}</td>
                   <td className="num">{p.score.bonus}</td>
@@ -361,6 +419,7 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
         )}
       </section>
       <section className="panel row small">
+        {state.started && state.players.filter((p) => p.role).length < 4 ? <button onClick={() => send({ t: "host", action: "addBots" })}>Fill empty seats with sims</button> : null}
         {you.role && (!r || r.status === "done") ? <button onClick={() => send({ t: "stand" })}>Stand up</button> : null}
         <button className="ghost" onClick={leave}>Leave room</button>
         {state.spectators ? <span className="muted">{state.spectators} watching</span> : null}

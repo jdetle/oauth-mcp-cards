@@ -32,7 +32,13 @@ pub struct Player {
     pub name: String,
     pub role: Option<Role>,
     pub score: ScoreBreakdown,
+    /// simulated player driven by the server
+    pub bot: bool,
 }
+
+/// How often a sim makes the right call.
+pub const SIM_SKILL: f64 = 0.85;
+const SIM_NAMES: [&str; 8] = ["Sim Arc", "Sim Bit", "Sim Clu", "Sim Dyn", "Sim Echo", "Sim Flux", "Sim Grid", "Sim Hex"];
 
 #[derive(Clone, Debug)]
 pub struct Move {
@@ -203,7 +209,7 @@ impl Game {
         let clean: String = name.chars().filter(|c| !c.is_control() && *c != '<' && *c != '>').collect::<String>().trim().chars().take(24).collect();
         let clean = if clean.is_empty() { "Player".to_string() } else { clean };
         let taken = self.seated_roles();
-        let role = if spectate {
+        let mut role = if spectate {
             None
         } else {
             match preferred {
@@ -211,7 +217,27 @@ impl Game {
                 _ => ROLES.into_iter().find(|r| !taken.contains(r)),
             }
         };
-        let p = Player { id: self.new_id(), name: clean, role, score: ScoreBreakdown::default() };
+        let id = self.new_id();
+        // no free seat: a human takes over a sim's seat (their preferred one if a sim holds it)
+        if role.is_none() && !spectate {
+            let sim = self
+                .players
+                .iter()
+                .filter(|p| p.bot && p.role.is_some())
+                .max_by_key(|p| (p.role == preferred) as u8)
+                .map(|p| (p.id.clone(), p.role.unwrap()));
+            if let Some((sim_id, sim_role)) = sim {
+                self.players.retain(|p| p.id != sim_id);
+                if let Some(r) = &mut self.round {
+                    if r.seats.get(sim_role) == Some(&sim_id) {
+                        r.seats.set(sim_role, Some(id.clone()));
+                    }
+                    r.guesses.retain(|(g, _)| *g != sim_id);
+                }
+                role = Some(sim_role);
+            }
+        }
+        let p = Player { id, name: clean, role, score: ScoreBreakdown::default(), bot: false };
         if self.host_id.is_none() {
             self.host_id = Some(p.id.clone());
         }
@@ -227,6 +253,95 @@ impl Game {
             (Some(r), Some(role)) => r.status != RoundStatus::Done && r.seats.get(role).map(|s| s == id).unwrap_or(false),
             _ => false,
         }
+    }
+
+    /// Fill every empty seat with a sim. Any player in the room may do this.
+    pub fn add_sims(&mut self, by: &str) -> Result<usize, GameError> {
+        if self.player(by).map(|p| p.bot).unwrap_or(true) {
+            return err("Unknown player.");
+        }
+        let taken = self.seated_roles();
+        let empty: Vec<Role> = ROLES.into_iter().filter(|r| !taken.contains(r)).collect();
+        if empty.is_empty() {
+            return err("Every seat is already taken.");
+        }
+        for role in &empty {
+            let used: Vec<String> = self.players.iter().map(|p| p.name.clone()).collect();
+            let name = SIM_NAMES.iter().find(|n| !used.contains(&n.to_string())).copied().unwrap_or("Sim");
+            let p = Player { id: self.new_id(), name: name.to_string(), role: Some(*role), score: ScoreBreakdown::default(), bot: true };
+            let pid = p.id.clone();
+            self.players.push(p);
+            self.fill_round_seat(*role, &pid);
+        }
+        Ok(empty.len())
+    }
+
+    /// Host only, and not mid-round (a sim may hold cards the round needs).
+    pub fn remove_sims(&mut self, by: &str) -> Result<(), GameError> {
+        self.require_host(by)?;
+        if self.round.as_ref().map(|r| r.status != RoundStatus::Done).unwrap_or(false) {
+            return err("Finish the round before removing sims.");
+        }
+        if !self.players.iter().any(|p| p.bot) {
+            return err("There are no sims at the table.");
+        }
+        self.players.retain(|p| !p.bot);
+        Ok(())
+    }
+
+    /// The sim that should act next, if any.
+    pub fn next_sim(&self) -> Option<String> {
+        let r = self.round.as_ref()?;
+        let is_bot = |id: &String| self.player(id).map(|p| p.bot).unwrap_or(false);
+        match r.status {
+            RoundStatus::Identify => ROLES
+                .into_iter()
+                .filter_map(|role| r.seats.get(role))
+                .find(|id| is_bot(id) && !r.guesses.iter().any(|(g, _)| g == *id))
+                .cloned(),
+            RoundStatus::Playing => r.active_role.and_then(|role| r.seats.get(role)).filter(|id| is_bot(id)).cloned(),
+            RoundStatus::Done => None,
+        }
+    }
+
+    /// What a sim does now: usually the right call (`skill`), sometimes a free check first, sometimes a mistake.
+    pub fn sim_choice(&self, sim: &str, skill: f64) -> Option<ClientMessage> {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let r = self.round.as_ref()?;
+        let s = &self.scenarios[r.index];
+        if r.status == RoundStatus::Identify {
+            let expected = s.expected_flows.clone().unwrap_or_default();
+            let flow = match expected.first() {
+                Some(f) if rng.gen_bool(skill.clamp(0.0, 1.0) * 0.85) => *f,
+                _ => FLOWS[rng.gen_range(0..FLOWS.len())],
+            };
+            return Some(ClientMessage::Identify { flow });
+        }
+        let view = self.private_view(sim);
+        let playable: Vec<&Card> = view.hand.iter().filter(|c| view.can_play.contains(&c.id)).collect();
+        let free: Vec<&&Card> = playable.iter().filter(|c| c.card_type.is_free()).collect();
+        if !free.is_empty() && rng.gen_bool(0.35) {
+            return Some(ClientMessage::Play { card_id: free[rng.gen_range(0..free.len())].id.clone() });
+        }
+        let real: Vec<&&Card> = playable.iter().filter(|c| !c.card_type.is_free()).collect();
+        let (good, bad): (Vec<&&Card>, Vec<&&Card>) = real.iter().partition(|c| {
+            let mut copy = self.clone();
+            if copy.play(sim, &c.id).is_err() {
+                return false;
+            }
+            let rr = copy.round.as_ref().unwrap();
+            rr.moves.last().map(|m| m.correct != Some(false)).unwrap_or(true)
+                && !(rr.status == RoundStatus::Done && !rr.result.as_ref().map(|x| x.success).unwrap_or(true))
+        });
+        let pick = if !good.is_empty() && (bad.is_empty() || rng.gen_bool(skill.clamp(0.0, 1.0))) {
+            good[rng.gen_range(0..good.len())]
+        } else if !bad.is_empty() {
+            bad[rng.gen_range(0..bad.len())]
+        } else {
+            return None;
+        };
+        Some(ClientMessage::Play { card_id: pick.id.clone() })
     }
 
     pub fn sit(&mut self, player_id: &str, role: Role) -> Result<(), GameError> {
@@ -277,6 +392,11 @@ impl Game {
     }
 
     pub fn host_action(&mut self, player_id: &str, action: HostAction, round: Option<u32>) -> Result<(), GameError> {
+        match action {
+            HostAction::AddBots => return self.add_sims(player_id).map(|_| ()),
+            HostAction::RemoveBots => return self.remove_sims(player_id),
+            _ => {}
+        }
         self.require_host(player_id)?;
         match action {
             HostAction::ForceReveal => {
@@ -289,6 +409,7 @@ impl Game {
                 let i = self.round.as_ref().map(|r| r.index).ok_or_else(|| GameError("No round to replay.".into()))?;
                 self.start_round(i)
             }
+            HostAction::AddBots | HostAction::RemoveBots => unreachable!(),
             HostAction::Next | HostAction::Goto => {
                 let target: i64 = match action {
                     HostAction::Next => self.round.as_ref().map(|r| r.index as i64 + 1).unwrap_or(0),
@@ -1113,6 +1234,7 @@ impl Game {
         });
         PublicState {
             room: self.room.clone(),
+            keys: PublicKeys { application: self.keys.app.public_key.clone(), gateway: self.keys.gateway.public_key.clone() },
             started: self.started,
             players: self
                 .players
@@ -1121,7 +1243,8 @@ impl Game {
                     id: p.id.clone(),
                     name: p.name.clone(),
                     role: p.role,
-                    connected: connected(&p.id),
+                    connected: p.bot || connected(&p.id),
+                    bot: p.bot,
                     is_host: self.host_id.as_deref() == Some(&p.id),
                     score: p.score.clone(),
                 })

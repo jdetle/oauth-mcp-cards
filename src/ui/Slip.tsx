@@ -1,5 +1,6 @@
 "use client";
 import { ROLE_NAMES, type Credential, type InFlight, type Role, type Token } from "../game/types.ts";
+import { Seal, useKeys } from "./Seal.tsx";
 
 const AUD_NAMES: Record<string, string> = { ...ROLE_NAMES, gateway: "Gateway" };
 const aud = (a: string) => AUD_NAMES[a] ?? a;
@@ -33,6 +34,7 @@ export function TokenSlip({ token, title }: { token: Token; title?: string }) {
       <div className="slip-title">
         <span>{title ?? kind}</span>
         {token.forged ? <span className="bad">hand-written</span> : null}
+        <Seal of={token.id} size={30} broken={!!token.forged} label={token.forged ? "Not minted by the IdP" : "This token's seal"} />
       </div>
       <Fields
         rows={[
@@ -48,7 +50,27 @@ export function TokenSlip({ token, title }: { token: Token; title?: string }) {
   );
 }
 
+/** Signature seal next to the public key that checks it. */
+function Signed({ signature, publicKey, signer, note }: { signature: string; publicKey?: string; signer?: string; note: string }) {
+  return (
+    <div className="slip-seals">
+      <figure>
+        <Seal of={signature || "unsigned"} size={40} broken={!signature} label={signature ? "Signature seal" : "Unsigned"} />
+        <figcaption>signature</figcaption>
+      </figure>
+      {publicKey ? (
+        <figure>
+          <Seal of={publicKey} size={40} label={`${signer}'s public key`} />
+          <figcaption>{signer} public key</figcaption>
+        </figure>
+      ) : null}
+      <p>{note}</p>
+    </div>
+  );
+}
+
 function CredentialSlip({ c }: { c: Credential }) {
+  const keys = useKeys();
   const now = Date.now();
   switch (c.type) {
     case "bearer":
@@ -58,6 +80,7 @@ function CredentialSlip({ c }: { c: Credential }) {
         <div className="slip">
           <div className="slip-title">API key</div>
           <Fields rows={[["key", c.key.keyId], ["owner", c.key.owner], ["sent in", c.key.placement === "query" ? <span className="bad">URL query string</span> : "Authorization header"]]} />
+          <p className="slip-note">A bearer secret: it travels on the wire, and whoever holds it is trusted.</p>
         </div>
       );
     case "sigv4":
@@ -65,6 +88,7 @@ function CredentialSlip({ c }: { c: Credential }) {
         <div className="slip">
           <div className="slip-title">SigV4 signature</div>
           <Fields rows={[["key id", c.sig.accessKeyId], ["scope", `${c.sig.region}/${c.sig.service}`], ["signed", rel(c.sig.timestamp + 5 * 60_000, now)], ["signature", short(c.sig.signature)]]} />
+          <Signed signature={c.sig.signature} note="HMAC with a shared secret: both sides hold the same key, so only the result is sent, never the secret." />
         </div>
       );
     case "gateway_jwt":
@@ -76,6 +100,12 @@ function CredentialSlip({ c }: { c: Credential }) {
               ["iss", c.jwt.iss], ["sub", c.jwt.sub], ["aud", aud(c.jwt.aud)], ["scope", c.jwt.scope.join(" ")],
               ["expiry", rel(c.jwt.exp, now)], ["alg", c.jwt.alg === "none" ? <span className="bad">none</span> : c.jwt.alg], ["signature", short(c.jwt.signature)],
             ]}
+          />
+          <Signed
+            signature={c.jwt.signature}
+            publicKey={keys?.gateway}
+            signer="Gateway"
+            note={c.jwt.signature ? "Signed with the gateway's private key. The MCP Server checks it with the public key from the gateway's JWKS." : "No signature: anyone could have written this."}
           />
         </div>
       );
@@ -91,6 +121,7 @@ function CredentialSlip({ c }: { c: Credential }) {
 
 export function InFlightSlip({ item }: { item: InFlight }) {
   const now = Date.now();
+  const keys = useKeys();
   const head = `${ROLE_NAMES[item.from as Role]} → ${ROLE_NAMES[item.to as Role]}`;
   switch (item.kind) {
     case "request":
@@ -123,6 +154,12 @@ export function InFlightSlip({ item }: { item: InFlight }) {
               ["iss", item.assertion.iss], ["sub", item.assertion.sub], ["aud", aud(item.assertion.aud)],
               ["scope", item.assertion.scope.join(" ")], ["expiry", rel(item.assertion.exp, now)], ["signature", short(item.assertion.signature)],
             ]}
+          />
+          <Signed
+            signature={item.assertion.signature}
+            publicKey={keys?.application}
+            signer="Application"
+            note="Signed with the Application's private key, which never leaves it. The IdP checks it against the registered public key."
           />
         </div>
       );

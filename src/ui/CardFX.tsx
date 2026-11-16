@@ -1,7 +1,14 @@
 "use client";
-// 3D card-play effects. Every move in the round log becomes a card that rises off the
-// player's terminal, flips, arcs across the board to the receiver, and then either
-// derezzes into light (correct), drops through a trap door (wrong) or gets scanned (check).
+// Card-play effects, built from bits.
+//
+// Every move in the round log becomes a card that
+//   1. assembles out of pixel bits above the player's terminal,
+//   2. glides (with a little 3D lean) to whoever receives it,
+//   3. resolves: correct → its bits collapse into the receiver as light;
+//      wrong → it glitches, then crumbles into bits that fall away;
+//      free check → a scan line passes over it and it dissolves.
+// The card face is sliced into a grid: each cell holds a full copy of the face, offset,
+// so the bits are pieces of the real card rather than confetti.
 import { useEffect, useRef, useState } from "react";
 import { ROLE_NAMES, type PublicRound, type Role, type Verdict } from "../game/types.ts";
 
@@ -16,11 +23,32 @@ interface Fx {
 const ROLE_COLOR: Record<Role, string> = { client: "#29f0ff", application: "#ff3dcb", idp: "#ffa12b", mcp: "#3dffa2" };
 const OUTCOME: Record<Verdict, string> = { correct: "#3dffa2", incorrect: "#ff2d55", neutral: "#9b7bff", info: "#29f0ff" };
 
+const CARD_W = 200;
+const CARD_H = 124;
+const COLS = 10;
+const ROWS = 6;
+const CW = CARD_W / COLS;
+const CH = CARD_H / ROWS;
+
 function centerOf(sel: string): { x: number; y: number } | null {
   const el = document.querySelector(sel);
   if (!el) return null;
   const r = el.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+/** Briefly light up a terminal when a card lands on it. */
+function flash(role: Role | null, color: string) {
+  if (!role) return;
+  const el = document.querySelector(`.terminal.r-${role}`) as HTMLElement | null;
+  el?.animate(
+    [
+      { boxShadow: `0 0 0 0 ${color}00, inset 0 0 0 0 ${color}00` },
+      { boxShadow: `0 0 34px 4px ${color}, inset 0 0 30px ${color}88`, offset: 0.25 },
+      { boxShadow: `0 0 0 0 ${color}00, inset 0 0 0 0 ${color}00` },
+    ],
+    { duration: 700, easing: "ease-out" },
+  );
 }
 
 export function CardFX({ round }: { round: PublicRound | null }) {
@@ -39,116 +67,167 @@ export function CardFX({ round }: { round: PublicRound | null }) {
     if (!fresh.length) return;
     const to = round.inFlight?.to ?? null;
     setFx((cur) => [
-      ...cur.slice(-3),
-      ...fresh.map((l, i) => ({ key: l.seq * 10 + i, role: l.role!, to: l.verdict === "info" ? l.role! : to, text: l.text, verdict: l.verdict })),
+      ...cur.slice(-2),
+      ...fresh.map((l, i) => ({ key: l.seq * 10 + i, role: l.role!, to: l.verdict === "info" ? null : to, text: l.text, verdict: l.verdict })),
     ]);
   }, [round]);
 
   return (
-    <div className="fx-layer" aria-hidden>
+    <div className="fx-layer" aria-hidden data-testid="fx-layer">
       {fx.map((f) => (
-        <FlyingCard key={f.key} fx={f} done={() => setFx((cur) => cur.filter((x) => x.key !== f.key))} />
+        <BitCard key={f.key} fx={f} done={() => setFx((cur) => cur.filter((x) => x.key !== f.key))} />
       ))}
     </div>
   );
 }
 
-function FlyingCard({ fx, done }: { fx: Fx; done: () => void }) {
-  const card = useRef<HTMLDivElement>(null);
-  const burst = useRef<HTMLDivElement>(null);
-  const [phase, setPhase] = useState<"fly" | "burst">("fly");
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
-  const shards = useRef(
-    Array.from({ length: 28 }, () => ({
-      x: (Math.random() - 0.5) * 420,
-      y: (Math.random() - 0.5) * 300,
-      z: Math.random() * 500 - 120,
-      rx: Math.random() * 720 - 360,
-      ry: Math.random() * 720 - 360,
-      s: 4 + Math.random() * 10,
-    })),
+function Face({ fx }: { fx: Fx }) {
+  return (
+    <div className="fx-face">
+      <span className="fx-role">{ROLE_NAMES[fx.role]}</span>
+      <span className="fx-text">{fx.text.length > 84 ? `${fx.text.slice(0, 82)}…` : fx.text}</span>
+      <span className="fx-mark">{fx.verdict === "correct" ? "✓" : fx.verdict === "incorrect" ? "✗" : fx.verdict === "info" ? "◎" : "◆"}</span>
+    </div>
   );
+}
+
+function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
+  const mover = useRef<HTMLDivElement>(null);
+  const bits = useRef<HTMLDivElement>(null);
+  // keep the latest callback without making the animation effect depend on it:
+  // the effect must run exactly once per card, or every state update would restart it
+  const doneRef = useRef(done);
+  doneRef.current = done;
 
   useEffect(() => {
+    const done = () => doneRef.current();
+    const m = mover.current;
+    const grid = bits.current;
+    if (!m || !grid) return;
+    const cells = Array.from(grid.children) as HTMLElement[];
     const from = centerOf(`.terminal.r-${fx.role}`) ?? { x: innerWidth / 2, y: innerHeight / 2 };
     const target = (fx.to && fx.to !== fx.role ? centerOf(`.terminal.r-${fx.to}`) : null) ?? centerOf(".core") ?? from;
-    const el = card.current;
-    if (!el) return;
+    const lift = -70; // hover just above the terminal
     const dx = target.x - from.x;
-    const dy = target.y - from.y;
-    const spin = dx >= 0 ? 1 : -1;
-    const wrong = fx.verdict === "incorrect";
-    const check = fx.verdict === "info";
-    const base = `translate(-50%, -50%) translate3d(${from.x}px, ${from.y}px, 0)`;
-    const go = (f: number, z: number) => `translate(-50%, -50%) translate3d(${from.x + dx * f}px, ${from.y + dy * f - Math.sin(Math.PI * f) * 120}px, ${z}px)`;
+    const lean = Math.max(-18, Math.min(18, dx / 25));
+    const at = (x: number, y: number, extra = "") => `translate3d(${x - CARD_W / 2}px, ${y - CARD_H / 2}px, 0) ${extra}`;
+    const anims: Animation[] = [];
+    const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
-    const frames: Keyframe[] = check
-      ? [
-          { transform: `${base} rotateX(75deg) scale(0.3)`, opacity: 0 },
-          { transform: `${base} translateZ(160px) rotateX(0deg) rotateY(-180deg) scale(1)`, opacity: 1, offset: 0.35 },
-          { transform: `${base} translateZ(200px) rotateX(0deg) rotateY(0deg) scale(1.05)`, opacity: 1, offset: 0.7 },
-          { transform: `${base} translateZ(40px) rotateX(60deg) scale(0.5)`, opacity: 0 },
-        ]
-      : [
-          { transform: `${base} rotateX(75deg) rotateZ(0deg) scale(0.3)`, opacity: 0 },
-          { transform: `${base} translateZ(180px) rotateX(10deg) rotateY(${180 * spin}deg) scale(1)`, opacity: 1, offset: 0.25 },
-          { transform: `${go(0.5, 260)} rotateX(-8deg) rotateY(${360 * spin}deg) rotateZ(${-8 * spin}deg) scale(1.08)`, offset: 0.6 },
-          wrong
-            ? { transform: `${go(1, 60)} rotateX(20deg) rotateY(${360 * spin}deg) scale(0.95)`, offset: 0.82 }
-            : { transform: `${go(1, 120)} rotateX(0deg) rotateY(${360 * spin}deg) scale(1)`, offset: 0.85 },
-          wrong
-            ? { transform: `${go(1, -420)} rotateX(-110deg) rotateZ(${40 * spin}deg) scale(0.15)`, opacity: 0.2 }
-            : { transform: `${go(1, 40)} rotateX(70deg) rotateY(${360 * spin}deg) scale(0.6)`, opacity: 0.9 },
-        ];
-    const a = el.animate(frames, { duration: check ? 1300 : 1500, easing: "cubic-bezier(.45,.05,.25,1)", fill: "forwards" });
-    a.onfinish = () => {
-      setAt(target);
-      setPhase("burst");
+    // 1. assemble from bits
+    cells.forEach((c) => {
+      anims.push(
+        c.animate(
+          [
+            { transform: `translate(${rnd(-36, 36)}px, ${rnd(-30, 30)}px) scale(0.2)`, opacity: 0 },
+            { transform: "translate(0,0) scale(1)", opacity: 1 },
+          ],
+          { duration: 320, delay: rnd(0, 160), easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" },
+        ),
+      );
+    });
+
+    // 2. glide to the receiver
+    const travel = fx.verdict === "info" ? 0 : 1;
+    const end = { x: from.x + dx * travel, y: (travel ? target.y : from.y) + (travel ? 0 : lift) };
+    const fly = m.animate(
+      [
+        { transform: at(from.x, from.y + lift, "perspective(800px) rotateX(18deg)") },
+        { transform: at(from.x, from.y + lift, "perspective(800px) rotateX(0deg)"), offset: 0.3 },
+        { transform: at((from.x + end.x) / 2, (from.y + lift + end.y) / 2 - 30, `perspective(800px) rotateY(${lean}deg) rotateZ(${lean / 4}deg)`), offset: 0.65 },
+        { transform: at(end.x, end.y, "perspective(800px) rotateY(0deg)") },
+      ],
+      { duration: travel ? 1000 : 520, easing: "cubic-bezier(.55,.05,.25,1)", fill: "forwards" },
+    );
+    anims.push(fly);
+
+    // 3. resolve
+    fly.onfinish = () => {
+      let last: Animation | null = null;
+      if (fx.verdict === "incorrect") {
+        grid.classList.add("bad");
+        anims.push(
+          grid.animate(
+            [
+              { transform: "translate(0,0)", filter: "none" },
+              { transform: "translate(-4px,1px)", filter: "drop-shadow(3px 0 #ff2d55) drop-shadow(-3px 0 #29f0ff)" },
+              { transform: "translate(3px,-1px)", filter: "drop-shadow(-3px 0 #ff2d55) drop-shadow(3px 0 #29f0ff)" },
+              { transform: "translate(0,0)", filter: "none" },
+            ],
+            { duration: 260, easing: "steps(4)" },
+          ),
+        );
+        cells.forEach((c, i) => {
+          const col = i % COLS;
+          last = c.animate(
+            [
+              { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
+              { transform: `translate(${rnd(4, 30)}px, ${rnd(-14, 4)}px) rotate(${rnd(-30, 30)}deg)`, opacity: 1, offset: 0.25 },
+              { transform: `translate(${rnd(10, 70)}px, ${rnd(120, 220)}px) rotate(${rnd(-160, 160)}deg) scale(0.4)`, opacity: 0 },
+            ],
+            { duration: 820, delay: 260 + col * 34 + rnd(0, 70), easing: "cubic-bezier(.4,0,.9,.6)", fill: "forwards" },
+          );
+          anims.push(last);
+        });
+        flash(fx.to, OUTCOME.incorrect);
+      } else if (fx.verdict === "info") {
+        grid.classList.add("scan");
+        cells.forEach((c, i) => {
+          const row = Math.floor(i / COLS);
+          last = c.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0)" }], {
+            duration: 300,
+            delay: 380 + row * 45 + rnd(0, 40),
+            easing: "ease-in",
+            fill: "forwards",
+          });
+          anims.push(last);
+        });
+      } else {
+        // collapse into the receiver as light
+        cells.forEach((c, i) => {
+          const col = i % COLS;
+          const row = Math.floor(i / COLS);
+          const tx = CARD_W / 2 - (col + 0.5) * CW;
+          const ty = CARD_H / 2 - (row + 0.5) * CH;
+          last = c.animate(
+            [
+              { transform: "translate(0,0) scale(1)", opacity: 1, filter: "brightness(1)" },
+              { transform: `translate(${tx * 0.3}px, ${ty * 0.3}px) scale(0.8)`, opacity: 1, filter: "brightness(2)", offset: 0.4 },
+              { transform: `translate(${tx}px, ${ty}px) scale(0.1)`, opacity: 0, filter: "brightness(3)" },
+            ],
+            { duration: 460, delay: rnd(0, 140), easing: "cubic-bezier(.6,0,.4,1)", fill: "forwards" },
+          );
+          anims.push(last);
+        });
+        setTimeout(() => flash(fx.to ?? fx.role, OUTCOME[fx.verdict]), 380);
+      }
+      if (last) (last as Animation).onfinish = done;
+      else done();
     };
-    return () => a.cancel();
-  }, [fx]);
+    // safety net: never leave a card on the board
+    const guard = setTimeout(done, 3500);
+    return () => {
+      clearTimeout(guard);
+      anims.forEach((a) => a.cancel());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    if (phase !== "burst") return;
-    const t = setTimeout(done, 900);
-    return () => clearTimeout(t);
-  }, [phase, done]);
-
-  const color = ROLE_COLOR[fx.role];
-  const outcome = OUTCOME[fx.verdict];
   return (
-    <>
-      {phase === "fly" ? (
-        <div ref={card} className={`fx-card v-${fx.verdict}`} style={{ ["--k" as string]: color, ["--o" as string]: outcome }}>
-          <div className="fx-face">
-            <span className="fx-role">{ROLE_NAMES[fx.role]}</span>
-            <span className="fx-text">{fx.text.length > 90 ? `${fx.text.slice(0, 88)}…` : fx.text}</span>
-            <span className="fx-mark">{fx.verdict === "correct" ? "✓" : fx.verdict === "incorrect" ? "✗" : fx.verdict === "info" ? "◎" : "◆"}</span>
-          </div>
-          <div className="fx-back" />
-        </div>
-      ) : null}
-      {phase === "burst" && at ? (
-        <div ref={burst} className={`fx-burst v-${fx.verdict}`} style={{ left: at.x, top: at.y, ["--o" as string]: outcome }}>
-          {fx.verdict === "incorrect" ? <span className="fx-pit" /> : <span className="fx-ring" />}
-          {fx.verdict === "info"
-            ? <span className="fx-scan" />
-            : shards.current.map((s, i) => (
-                <i
-                  key={i}
-                  style={{
-                    width: s.s,
-                    height: s.s,
-                    ["--tx" as string]: `${fx.verdict === "incorrect" ? s.x * 0.4 : s.x}px`,
-                    ["--ty" as string]: `${fx.verdict === "incorrect" ? Math.abs(s.y) * 0.8 : s.y}px`,
-                    ["--tz" as string]: `${fx.verdict === "incorrect" ? -Math.abs(s.z) : s.z}px`,
-                    ["--rx" as string]: `${s.rx}deg`,
-                    ["--ry" as string]: `${s.ry}deg`,
-                  }}
-                />
-              ))}
-        </div>
-      ) : null}
-    </>
+    <div ref={mover} className="fx-card" style={{ ["--k" as string]: ROLE_COLOR[fx.role], ["--o" as string]: OUTCOME[fx.verdict] }}>
+      <div ref={bits} className="fx-bits">
+        {Array.from({ length: COLS * ROWS }, (_, i) => {
+          const col = i % COLS;
+          const row = Math.floor(i / COLS);
+          return (
+            <div key={i} className="fx-bit" style={{ left: col * CW, top: row * CH, width: CW + 0.5, height: CH + 0.5 }}>
+              <div style={{ transform: `translate(${-col * CW}px, ${-row * CH}px)` }}>
+                <Face fx={fx} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -79,6 +79,8 @@ pub struct Room {
     conns: HashMap<u64, Conn>,
     pub last_active: Instant,
     msg_limiter: HashMap<u64, VecDeque<Instant>>,
+    /// a sim move is already scheduled for this room
+    sim_pending: bool,
 }
 
 impl Room {
@@ -286,7 +288,7 @@ async fn create_room(
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
         name.clone(),
-        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), last_active: Instant::now(), msg_limiter: HashMap::new() })),
+        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false })),
     );
     drop(rooms);
     joined(&state, &name, &player)
@@ -330,6 +332,7 @@ async fn join_room(
     r.last_active = Instant::now();
     r.broadcast();
     drop(r);
+    drive_sims(room.clone());
     joined(&state, &name, &player)
 }
 
@@ -402,6 +405,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
             Ok(()) => {
                 r.last_active = Instant::now();
                 r.broadcast();
+                drop(r);
+                drive_sims(room.clone());
             }
             Err(e) => send_one(&tx, ServerMessage::Error { message: &e.0 }),
         }
@@ -413,6 +418,43 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
         r.broadcast();
     }
     writer.abort();
+}
+
+/// If a sim is due to act, schedule its move after a human-paced delay
+/// (long enough for the previous card's 3D animation to land). One pending move per room.
+pub fn drive_sims(room: Arc<Mutex<Room>>) {
+    let delay = {
+        let mut r = room.lock().unwrap();
+        if r.sim_pending || r.game.next_sim().is_none() {
+            return;
+        }
+        r.sim_pending = true;
+        let identify = r.game.round.as_ref().map(|x| x.status == RoundStatus::Identify).unwrap_or(false);
+        let jitter = u64::from(u16::from_le_bytes(random_bytes::<2>()) % 700);
+        // SIM_DELAY_MS overrides the pacing (tests run sims fast)
+        match std::env::var("SIM_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
+            Some(ms) => Duration::from_millis(ms),
+            None => Duration::from_millis(if identify { 500 + jitter } else { 1700 + jitter }),
+        }
+    };
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        {
+            let mut r = room.lock().unwrap();
+            r.sim_pending = false;
+            if let Some(sim) = r.game.next_sim() {
+                // SIM_SKILL (0..1) overrides how often sims make the right call
+                let skill = std::env::var("SIM_SKILL").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(crate::engine::SIM_SKILL);
+                if let Some(m) = r.game.sim_choice(&sim, skill) {
+                    if apply(&mut r.game, &sim, m).is_ok() {
+                        r.last_active = Instant::now();
+                        r.broadcast();
+                    }
+                }
+            }
+        }
+        drive_sims(room);
+    });
 }
 
 /// Strict parse: size-limited, known message types only, no extra fields.

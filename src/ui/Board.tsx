@@ -96,13 +96,32 @@ export function ScrambleText({ text, hidden = false }: { text: string; hidden?: 
   );
 }
 
-/** Two hatch panels that split open over the abyss. */
-export function TrapDoor({ open, label }: { open: boolean; label?: string }) {
+/** A block that has lost some of its bits: the mark of a broken chain. */
+export function BitGlyph() {
+  const gone = [3, 4, 8, 9, 13, 14, 19, 23, 24];
   return (
-    <span className={`trapdoor${open ? " open" : ""}`} role={label ? "img" : undefined} aria-label={label}>
-      <span className="pit" />
-      <span className="hatch l" />
-      <span className="hatch r" />
+    <span className="bit-glyph" role="img" aria-label="Chain broken">
+      {Array.from({ length: 25 }, (_, i) => (
+        <i key={i} className={gone.includes(i) ? "gone" : undefined} style={{ ["--dx" as string]: `${(i % 5) * 3 + 4}px`, animationDelay: `${(i % 5) * 60}ms` }} />
+      ))}
+    </span>
+  );
+}
+
+/** Bits shed by the terminal where the chain broke (plays once). */
+function Crumbs({ id }: { id: string }) {
+  const bits = useMemo(() => {
+    const r = seeded(id);
+    return Array.from({ length: 22 }, () => ({ left: r() * 100, size: 3 + r() * 5, dx: r() * 50 - 25, dy: 50 + r() * 90, rot: r() * 300 - 150, delay: r() * 0.7 }));
+  }, [id]);
+  return (
+    <span className="crumbs" aria-hidden>
+      {bits.map((b, i) => (
+        <i
+          key={i}
+          style={{ left: `${b.left}%`, width: b.size, height: b.size, animationDelay: `${b.delay}s`, ["--dx" as string]: `${b.dx}px`, ["--dy" as string]: `${b.dy}px`, ["--rot" as string]: `${b.rot}deg` }}
+        />
+      ))}
     </span>
   );
 }
@@ -136,6 +155,7 @@ export function Board({
   const used = new Set((r?.slips ?? []).map((s) => `${s.from}>${s.to}`));
 
   return (
+    <>
     <section className="board" aria-label="Game board">
       <svg className="circuit" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
         <defs>
@@ -186,19 +206,21 @@ export function Board({
             style={{ left: `${(pt.x / W) * 100}%`, top: `${(pt.y / H) * 100}%` }}
             aria-current={active ? "step" : undefined}
           >
-            {broken === role ? <TrapDoor open label={`${ROLE_NAMES[role]} fell through the trap door`} /> : null}
+            {broken === role ? <Crumbs id={`${r?.index}-${role}`} /> : null}
             <div className="t-role">{ROLE_NAMES[role]}</div>
             <div className="t-who">
               {p ? (
                 <>
                   <ScrambleSuit id={p.id} size={22} still={!p.connected} />
                   <span className="t-name">{p.name}{p.id === youId ? " · you" : ""}</span>
+                  {p.bot ? <span className="sim-tag" title="Simulated player">sim</span> : null}
                 </>
               ) : (
                 <span className="t-empty">— open port —</span>
               )}
             </div>
-            {p ? <div className="t-score">{scores(p.id).toString().padStart(2, "0")} pts{p.connected ? "" : " · offline"}</div> : null}
+            {p ? <div className="t-score">{scores(p.id).toString().padStart(2, "0")} pts{p.connected ? "" : " · offline"}{p.bot && r?.status === "playing" && r.activeRole === role ? " · computing…" : ""}</div> : null}
+            {broken === role ? <span className="fault-tag">chain broke here</span> : null}
             {!p && !myRoundRole ? <button className="t-sit" onClick={() => onSit(role)}>Jack in</button> : null}
           </div>
         );
@@ -213,10 +235,10 @@ export function Board({
         {r && r.status === "identify" ? <div className="turn-banner" role="status">Pick the flow in secret · {r.identifySubmitted.length}/4 locked</div> : null}
         {r?.status === "done" ? (
           <div className={`turn-banner ${r.result?.success ? "won" : "lost"}`} role="status">
-            {r.result?.success ? "Chain holds" : "Trap door sprung"}
+            {r.result?.success ? "Chain holds" : "Chain broken"}
           </div>
         ) : null}
-        {r?.inFlight ? <InFlightSlip item={r.inFlight} /> : !r ? <div className="idle">Grid idle. Waiting for the host.</div> : null}
+        {!r ? <div className="idle">Grid idle. Waiting for the host.</div> : null}
       </div>
 
       {r && r.slips.length ? (
@@ -229,5 +251,14 @@ export function Board({
         </ol>
       ) : null}
     </section>
+    {r?.inFlight ? (
+      <section className={`wire c-${r.inFlight.from}`} aria-label="On the wire">
+        <h3>
+          On the wire <span>{ROLE_NAMES[r.inFlight.from]} → {ROLE_NAMES[r.inFlight.to]}</span>
+        </h3>
+        <InFlightSlip item={r.inFlight} />
+      </section>
+    ) : null}
+    </>
   );
 }

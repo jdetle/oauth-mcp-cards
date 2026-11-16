@@ -204,6 +204,8 @@ export interface PublicPlayer {
   name: string;
   role: Role | null;
   connected: boolean;
+  /** simulated player driven by the server */
+  bot: boolean;
   isHost: boolean;
   score: ScoreBreakdown;
 }
@@ -251,6 +253,8 @@ export interface PublicRound {
 
 export interface PublicState {
   room: string;
+  /** public halves of the signing keys (hex); private keys never leave the server */
+  keys: { application: string; gateway: string };
   started: boolean;
   players: PublicPlayer[];
   spectators: number;
@@ -279,7 +283,7 @@ export type ClientMessage =
   | { t: "play"; cardId: string }
   | { t: "identify"; flow: Flow }
   | { t: "tell" }
-  | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal"; round?: number }
+  | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal" | "addBots" | "removeBots"; round?: number }
   | { t: "ping" };
 
 export type ServerMessage =

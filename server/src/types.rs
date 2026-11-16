@@ -473,6 +473,7 @@ pub struct PublicPlayer {
     pub name: String,
     pub role: Option<Role>,
     pub connected: bool,
+    pub bot: bool,
     pub is_host: bool,
     pub score: ScoreBreakdown,
 }
@@ -595,8 +596,19 @@ pub struct PublicRound {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PublicKeys {
+    /// the Application's registered public key (Ed25519, hex): verifies its signed assertions
+    pub application: String,
+    /// the gateway's public signing key (its JWKS): verifies Zero Trust JWTs
+    pub gateway: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublicState {
     pub room: String,
+    /// public halves only; private keys never leave the server
+    pub keys: PublicKeys,
     pub started: bool,
     pub players: Vec<PublicPlayer>,
     pub spectators: usize,
@@ -625,6 +637,8 @@ pub enum HostAction {
     Replay,
     Goto,
     ForceReveal,
+    AddBots,
+    RemoveBots,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

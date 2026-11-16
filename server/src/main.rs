@@ -7,6 +7,8 @@
 //!   DEV_ORIGIN      allow this browser origin with credentials (e.g. http://localhost:3000)
 //!   SECURE_COOKIES  "1" to mark session cookies Secure (set when served over HTTPS)
 //!   INTERNAL_TOKEN  lets load tests skip the per-IP room-creation limit
+//!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
+//!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~1.7-2.4s)
 mod crypto;
 mod engine;
 mod explain;

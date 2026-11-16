@@ -28,12 +28,18 @@ A note on naming: the rules doc's **JAG** round is a *service* identity grant (t
 
 ## Look and feel
 
-Not a dashboard: a board game played on a light-grid. The table is a circuit board with four neon **terminals** (one colour per seat: Client cyan, Application magenta, IdP amber, MCP Server green). Glowing traces join them in flow order, and token slips ride the traces as light packets.
+Not a dashboard: a board game played on a light-grid, with a visual language taken from the cryptography it teaches.
 
-- **Every card play is a 3D move** (`src/ui/CardFX.tsx`). The card rises off its terminal, flips, and arcs across the board to whoever receives it. A correct call derezzes into green voxels. A wrong call drops through a trap door and shatters red. A free check gets a scanner sweep.
-- **Trap doors** open on the terminal where the chain broke, and in the round result.
+- **The board is a circuit.** Four neon terminals (Client cyan, Application magenta, IdP amber, MCP Server green) joined by traces in flow order. Token slips ride the traces as light packets, and the slip in transit is shown in full in the "On the wire" panel under the board.
+- **Cards are made of bits** (`src/ui/CardFX.tsx`). Each play assembles a card out of pixel bits above the player's terminal and glides it to the receiver. A correct call collapses into the receiver as light. A wrong call glitches and crumbles into bits that fall away, and the terminal where the chain broke is marked. A free check gets a scan line.
+- **Key seals** (`src/ui/Seal.tsx`). Every key, signature and token is drawn as a times table on a circle: n points, a chord from each point i to k·i mod n, with n, k and the colour derived from its actual bytes. The same key always draws the same seal. Signed slips show the signature's seal beside the signer's public-key seal, and an unsigned JWT (`alg: none`) shows an empty ring. Only public keys are ever sent to browsers (there is a test for that).
 - **Scramble suits** (after *A Scanner Darkly*): every player's identity is a shifting mosaic. Unlabelled assessment cards keep their flow "classified" in glyph noise until the round ends.
-- Dark only, with a perspective grid floor and scanlines. All motion is turned off under `prefers-reduced-motion`.
+- **`/learn/`: how signatures work**, as three things to play with, in the order Brit Cruise's *Art of the Problem* teaches them: mixing paint (a shared secret agreed in public), clock arithmetic (3ˣ mod 17: easy forward, brute force backward), and a toy RSA signature you can tamper with or forge. It ends by mapping each idea to the cards in the game, including which ones are *not* public-key (SigV4's shared secret, API keys).
+- Dark only, with a perspective grid floor. All motion is turned off under `prefers-reduced-motion`.
+
+## Playing solo: sims
+
+Any player can press **Fill empty seats with sims**. Sims are simulated players run by the server: they take their turns with a human-paced delay, sometimes use a free check first, lock in a flow guess in assessment rounds, and make the right call about 85% of the time (`SIM_SKILL`). They carry a **SIM** tag. A person who joins when no seat is free takes over a sim's seat, mid-round if need be, and the host can remove sims between rounds.
 
 ## Architecture
 
@@ -83,7 +89,8 @@ Open the site, create a room (you get a random name like `amber-falcon`), and sh
 ## Tests
 
 ```bash
-bun run test               # cargo test (rules, engine, fuzz) + live e2e and fuzz against a real server
+bun run test               # cargo test (rules, engine, fuzz) + live e2e/fuzz + Playwright browser tests
+bun run test:ui            # just the Playwright tests (desktop + phone); first time: bunx playwright install chromium
 bun run load -- --rooms 50 # load/stress test (starts its own release server, or pass --host)
 ```
 
@@ -91,6 +98,7 @@ bun run load -- --rooms 50 # load/stress test (starts its own release server, or
 - `server/src/tests.rs`: scoring, seat rotation, private guesses, spot-the-tell, the IdP wrong-flow bonus, hand privacy, refusal of forged and out-of-turn plays, wire-format checks. A solver proves **every scenario file has an unbroken winning line**. It also fuzzes the parser and engine with 20k random/malformed messages each, checking invariants.
 - `tests/e2e.test.ts`: four simulated WebSocket clients play a full OBO round against the real server. It checks that nobody (including a spectator) ever receives another player's card ids, that a reconnect keeps the seat, that wrong passwords are rate limited, and that forged or cross-room cookies are refused (close code 4401).
 - `tests/fuzz.test.ts`: live garbage, binary frames, forged card ids and someone else's card ids over a socket. The server must refuse them, stay up, and leak nothing.
+- `e2e/*.spec.ts` (Playwright, real browser against the real server, sims set to perfect fast play): create a room and win a round with sims; a wrong call marks where the chain broke; signed assertions show seals and no private key reaches the page; assessment guesses stay classified until the reveal; a second person takes over a sim's seat and neither side can see the other's cards; no cookie means a password prompt; reduced motion disables card effects; number keys play cards; the explainer's three labs; and no sideways scroll on a phone. `VISUAL=1 bunx playwright test visual` captures review screenshots.
 - `scripts/load.ts`: N rooms × 4 bots playing complete games (all 28 rounds) with human-ish think time. It reports latency and error rate, and checks that every room's scoreboard equals the sum of awarded points (no cross-room state corruption).
 
 Last local run (Apple Silicon laptop, release build): **50/50 rooms completed, 200 players, 3,850 plays, 0 server errors, latency p50 0.8 ms / p95 2.2 ms / p99 3.7 ms, 0 invariant violations.**
@@ -162,7 +170,8 @@ The identity you deploy with needs CloudFormation plus create rights for IAM rol
 ```
 server/              Rust server: main.rs, server.rs (HTTP/WS/rooms), engine.rs, validate.rs, scenario.rs, crypto.rs, explain.rs, types.rs, tests.rs
 scenarios/*.json     All rounds as data (loaded by the server at startup)
-app/                 Next.js pages: / (lobby), /play/?room=…, /reference/
+app/                 Next.js pages: / (lobby), /play/?room=…, /learn/, /reference/
+e2e/                 Playwright browser tests (and review-screenshot capture)
 src/game/            types.ts (wire contract), reference.ts (quick-reference + auth reference data)
 src/ui/              React components
 tests/               live e2e + fuzz; sim.ts = simulated WebSocket players

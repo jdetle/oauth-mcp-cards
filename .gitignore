@@ -8,3 +8,6 @@ next-env.d.ts
 .DS_Store
 deploy/.state
 server/target
+test-results
+playwright-report
+e2e/screenshots
