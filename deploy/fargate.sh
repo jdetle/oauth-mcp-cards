@@ -5,7 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export AWS_PROFILE="${AWS_PROFILE:-agentcore-bootstrap-source}"
+# Use access keys from the environment if present; otherwise a named profile.
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]; then export AWS_PROFILE="${AWS_PROFILE:-agentcore-bootstrap-source}"; fi
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 EXPECTED_ACCOUNT="${EXPECTED_ACCOUNT:-800002328643}"
 BUILD_STACK="${BUILD_STACK:-oauth-mcp-cards-build}"
