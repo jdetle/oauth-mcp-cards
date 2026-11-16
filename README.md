@@ -26,6 +26,15 @@ The rules document's own rounds (OBO, JAG, all 8 assessment scenarios including 
 
 A note on naming: the rules doc's **JAG** round is a *service* identity grant (the Application signs its own assertion, no user). **ID-JAG** (Okta Cross App Access) is different: it carries a *user's* identity from the enterprise IdP to another app's authorization server. Both are in the game, and the JAG round's discussion text points out the difference. In real ID-JAG there's one more hop (the resource's own authorization server swaps the ID-JAG for an access token); here the MCP Server seat plays that authorization server too.
 
+## Look and feel
+
+Not a dashboard: a board game played on a light-grid. The table is a circuit board with four neon **terminals** (one colour per seat: Client cyan, Application magenta, IdP amber, MCP Server green). Glowing traces join them in flow order, and token slips ride the traces as light packets.
+
+- **Every card play is a 3D move** (`src/ui/CardFX.tsx`). The card rises off its terminal, flips, and arcs across the board to whoever receives it. A correct call derezzes into green voxels. A wrong call drops through a trap door and shatters red. A free check gets a scanner sweep.
+- **Trap doors** open on the terminal where the chain broke, and in the round result.
+- **Scramble suits** (after *A Scanner Darkly*): every player's identity is a shifting mosaic. Unlabelled assessment cards keep their flow "classified" in glyph noise until the round ends.
+- Dark only, with a perspective grid floor and scanlines. All motion is turned off under `prefers-reduced-motion`.
+
 ## Architecture
 
 ```
