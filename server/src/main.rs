@@ -9,6 +9,8 @@
 //!   INTERNAL_TOKEN  lets load tests skip the per-IP room-creation limit
 //!   ADMIN_PASSWORD_HASH  scrypt hash from `oauth-mcp-server hash-password`; enables /admin/
 //!   TURNSTILE_SITE_KEY, TURNSTILE_SECRET  Cloudflare Turnstile bot check on create/join/admin login
+//!   BASE_PATH       serve the whole app under this prefix, e.g. /mcp-oauth (default: site root)
+//!   EDGE_PUBLIC_KEY Ed25519 public key (hex) of the edge Worker that signs visitor addresses
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
 //!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~5.6-6.3s, so each card can be read)
 mod admin;
@@ -65,6 +67,7 @@ async fn main() {
         admin_hash: env("ADMIN_PASSWORD_HASH"),
         turnstile_site_key: env("TURNSTILE_SITE_KEY"),
         turnstile_secret: env("TURNSTILE_SECRET"),
+        base_path: env("BASE_PATH").unwrap_or_default(),
     };
     eprintln!(
         "admin: {} · bot check (Turnstile): {}",
@@ -73,13 +76,25 @@ async fn main() {
     );
     let state = server::AppState::new(scenarios, cfg);
     server::spawn_reaper(state.clone());
-    let app = server::router(state, &static_dir);
+    let base = state.base_path.clone();
+    let app = server::with_base_path(server::router(state, &static_dir), base);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    eprintln!("listening on http://{addr}");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+    eprintln!("listening on http://{addr}{}", server::normalize_base_path(&std::env::var("BASE_PATH").unwrap_or_default()));
+    axum::serve(listener, axum::ServiceExt::<axum::extract::Request>::into_make_service_with_connect_info::<SocketAddr>(app))
         .with_graceful_shutdown(async {
+            // ECS stops tasks with SIGTERM; without this the server ignored it and was killed 30s later
+            #[cfg(unix)]
+            {
+                let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("SIGTERM handler");
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = term.recv() => {}
+                }
+            }
+            #[cfg(not(unix))]
             let _ = tokio::signal::ctrl_c().await;
+            eprintln!("shutting down");
         })
         .await
         .expect("server");

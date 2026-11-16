@@ -51,6 +51,7 @@ Resources:
         EnvironmentVariables:
           - { Name: REPO_URI, Value: !GetAtt Repository.RepositoryUri }
           - { Name: IMAGE_TAG, Value: latest }
+          - { Name: BASE_PATH, Value: "" }
       Source:
         Type: S3
         Location: !Sub "${SourceBucket}/source.zip"
@@ -62,7 +63,7 @@ Resources:
                 - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${REPO_URI%%/*}
             build:
               commands:
-                - docker build -t $REPO_URI:$IMAGE_TAG .
+                - docker build --build-arg BASE_PATH=$BASE_PATH -t $REPO_URI:$IMAGE_TAG .
             post_build:
               commands:
                 - docker push $REPO_URI:$IMAGE_TAG

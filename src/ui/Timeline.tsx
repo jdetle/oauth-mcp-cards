@@ -1,6 +1,7 @@
 "use client";
 // The game-long record: every move in every round, timestamped, as a chat-style feed
 // with a tick strip (one tick per move, coloured by outcome) along the top.
+import { href } from "./paths.ts";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ROLE_NAMES, type ArchivedRound, type Call, type LogEntry, type PublicRound, type PublicState, type ServerMessage } from "../game/types.ts";
@@ -206,7 +207,7 @@ export function FeedDock() {
       {open ? (
         <div className="feed-body">
           <Timeline room={room} round={r} compact />
-          <a href={`/play/?room=${encodeURIComponent(room)}`}>Back to the table →</a>
+          <a href={href(`/play/?room=${encodeURIComponent(room)}`)}>Back to the table →</a>
         </div>
       ) : null}
     </aside>

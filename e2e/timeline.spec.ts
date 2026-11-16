@@ -11,7 +11,8 @@ test("timeline keeps a timestamped record of every move across rounds, on every 
   await jumpTo(page, "Learning: On-Behalf-Of");
   await playCard(page, "with the user's token slip");
   await expect(result(page)).toContainText("Chain unbroken", { timeout: 20_000 });
-  await expect(feed.locator(".tl-msg")).toHaveCount(4);
+  // four judged calls (sims sometimes add a free check, which isn't judged)
+  await expect(feed.locator(".tl-msg:has(.call)")).toHaveCount(4);
   await expect(feed.locator(".tl-msg").first()).toContainText("Client");
   await expect(feed.locator(".tl-msg").first().locator("time")).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
 
@@ -35,7 +36,7 @@ test("timeline keeps a timestamped record of every move across rounds, on every 
   await expect(feed.locator(".tl-msg").first()).toContainText("Send the request to the Application");
 
   // and it follows you to the other pages as a dock
-  for (const path of ["/learn/", "/reference/", "/"]) {
+  for (const path of ["./learn/", "./reference/", "./"]) {
     await page.goto(path);
     const dock = page.locator(".feed-dock");
     await expect(dock).toContainText(room);

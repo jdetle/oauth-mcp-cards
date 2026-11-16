@@ -31,7 +31,8 @@ pub fn verify_admin(token: &str, secret: &[u8], now: i64) -> bool {
 
 fn cookie(state: &AppState, value: &str, max_age: i64) -> HeaderValue {
     HeaderValue::from_str(&format!(
-        "{COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+        "{COOKIE}={value}; Path={}; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+        state.cookie_path(),
         if state.secure_cookies { "; Secure" } else { "" }
     ))
     .unwrap()

@@ -17,6 +17,14 @@ Parameters:
     Type: String
     Default: ""
     Description: Cloudflare Turnstile site key (public). Empty = bot check off
+  BasePath:
+    Type: String
+    Default: ""
+    Description: Serve the app under this prefix (e.g. /mcp-oauth). Must match the image's BASE_PATH build arg
+  EdgePublicKey:
+    Type: String
+    Default: ""
+    Description: Ed25519 public key (hex) of the Cloudflare Worker that signs visitor addresses
   TurnstileSecretParam:
     Type: String
     Default: ""
@@ -26,6 +34,7 @@ Conditions:
   HasAdmin: !Not [!Equals [!Ref AdminHashParam, ""]]
   HasTurnstile: !And [!Not [!Equals [!Ref TurnstileSiteKey, ""]], !Not [!Equals [!Ref TurnstileSecretParam, ""]]]
   HasSecrets: !Or [!Condition HasAdmin, !Condition HasTurnstile]
+  HasEdgeKey: !Not [!Equals [!Ref EdgePublicKey, ""]]
 
 Resources:
   # ---- network: small VPC, two public subnets, no NAT (task gets a public IP for ECR pulls) ----
@@ -106,6 +115,9 @@ Resources:
       HealthyThresholdCount: 2
       TargetGroupAttributes:
         - { Key: deregistration_delay.timeout_seconds, Value: "10" }
+        - { Key: stickiness.enabled, Value: "true" }
+        - { Key: stickiness.type, Value: lb_cookie }
+        - { Key: stickiness.lb_cookie.duration_seconds, Value: "86400" }
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -157,6 +169,8 @@ Resources:
             - { Name: SECURE_COOKIES, Value: "1" }
             - { Name: TRUST_CLOUDFRONT, Value: "1" }
             - !If [HasTurnstile, { Name: TURNSTILE_SITE_KEY, Value: !Ref TurnstileSiteKey }, !Ref "AWS::NoValue"]
+            - { Name: BASE_PATH, Value: !Ref BasePath }
+            - !If [HasEdgeKey, { Name: EDGE_PUBLIC_KEY, Value: !Ref EdgePublicKey }, !Ref "AWS::NoValue"]
           Secrets:
             - !If
               - HasAdmin
@@ -180,8 +194,11 @@ Resources:
       LaunchType: FARGATE
       DesiredCount: 1
       TaskDefinition: !Ref TaskDef
-      # never run two copies: game state is in memory (a deploy restarts open games)
-      DeploymentConfiguration: { MaximumPercent: 100, MinimumHealthyPercent: 0 }
+      # Start the new task before stopping the old one, so a deploy never leaves the load balancer
+      # with nothing to send traffic to (that was a 2-minute window of 503s per deploy).
+      # Games live in memory, so open games still end when the old task stops; sticky sessions
+      # keep each browser on one task during the short overlap.
+      DeploymentConfiguration: { MaximumPercent: 200, MinimumHealthyPercent: 100 }
       HealthCheckGracePeriodSeconds: 30
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -214,6 +231,11 @@ Resources:
           OriginRequestPolicyId: 33f36d7e-f396-46d9-90e0-52428a34d9dc # Managed-AllViewerAndCloudFrontHeaders-2022-06
           Compress: true
         CacheBehaviors:
+          - PathPattern: /mcp-oauth/_next/static/*
+            TargetOriginId: alb
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+            Compress: true
           - PathPattern: /_next/static/*
             TargetOriginId: alb
             ViewerProtocolPolicy: redirect-to-https

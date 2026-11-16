@@ -10,7 +10,7 @@ test("admin signs in, sees active games, deletes one; the players are told", asy
 
   const ctx = await browser.newContext();
   const admin = await ctx.newPage();
-  await admin.goto("/admin/");
+  await admin.goto("./admin/");
   await expect(admin.getByRole("heading", { name: "Admin sign-in" })).toBeVisible();
 
   await admin.getByLabel("Admin password").fill("definitely-wrong");
@@ -39,7 +39,7 @@ test("admin signs in, sees active games, deletes one; the players are told", asy
   // the player is told, and the room is gone from the lobby
   await expect(page.getByText("This game was closed by an admin.")).toBeVisible();
   await expect(page.locator(".board")).toHaveCount(0);
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.locator(".room-item", { hasText: room })).toHaveCount(0);
 
   // sign out really signs out
@@ -53,7 +53,7 @@ test("admin signs in, sees active games, deletes one; the players are told", asy
 test("the admin page never shows games to someone who isn't signed in", async ({ page }) => {
   await createRoom(page, "Hidden");
   await page.context().clearCookies();
-  await page.goto("/admin/");
+  await page.goto("./admin/");
   await expect(page.getByRole("heading", { name: "Admin sign-in" })).toBeVisible();
   await expect(page.locator(".admin-rooms")).toHaveCount(0);
 });

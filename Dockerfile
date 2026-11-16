@@ -8,7 +8,9 @@ RUN bun install --frozen-lockfile
 COPY app ./app
 COPY src ./src
 COPY next.config.ts tsconfig.json ./
-RUN NEXT_PUBLIC_API_BASE= bunx next build
+# e.g. /mcp-oauth to serve the site under that prefix (jdetle.com/mcp-oauth)
+ARG BASE_PATH=
+RUN NEXT_PUBLIC_API_BASE= NEXT_PUBLIC_BASE_PATH=$BASE_PATH bunx next build
 
 # 2. Server
 FROM rust:1-bookworm AS server
@@ -27,7 +29,8 @@ WORKDIR /app
 COPY --from=server /src/target/release/oauth-mcp-server /app/oauth-mcp-server
 COPY --from=web /app/out /app/out
 COPY scenarios /app/scenarios
-ENV PORT=8080 STATIC_DIR=/app/out SCENARIOS_DIR=/app/scenarios
+ARG BASE_PATH=
+ENV PORT=8080 STATIC_DIR=/app/out SCENARIOS_DIR=/app/scenarios BASE_PATH=$BASE_PATH
 EXPOSE 8080
 USER app
 HEALTHCHECK --interval=30s --timeout=3s CMD curl -fsS http://localhost:8080/api/health || exit 1

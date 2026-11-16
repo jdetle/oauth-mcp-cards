@@ -124,9 +124,32 @@ pub struct Config {
     /// Cloudflare Turnstile: both set = bot check required on create / join / admin login
     pub turnstile_site_key: Option<String>,
     pub turnstile_secret: Option<String>,
+    /// serve everything under this prefix, e.g. "/mcp-oauth" (empty = site root)
+    pub base_path: String,
+}
+
+/// "/mcp-oauth/" or "mcp-oauth" -> "/mcp-oauth"; "" or "/" -> "".
+pub fn normalize_base_path(raw: &str) -> String {
+    let t = raw.trim().trim_matches('/');
+    let ok = !t.is_empty() && t.len() <= 64 && t.split('/').all(|seg| !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+    if ok { format!("/{t}") } else { String::new() }
+}
+
+/// The visitor's address as vouched for by our edge Worker: it signs "<ts>.<ip>" with an
+/// Ed25519 key whose private half never leaves Cloudflare. We hold only the public key, so
+/// nothing secret is shared, and a header someone else writes won't verify.
+pub fn edge_ip(headers: &HeaderMap, public_key_hex: &str, now_ms: i64) -> Option<String> {
+    let get = |k: &str| headers.get(k).and_then(|v| v.to_str().ok());
+    let (ip, ts, sig) = (get("x-edge-ip")?, get("x-edge-ts")?, get("x-edge-sig")?);
+    let t: i64 = ts.parse().ok()?;
+    if (now_ms - t).abs() > 120_000 || ip.is_empty() || ip.len() > 64 {
+        return None;
+    }
+    crate::crypto::ed_verify(&format!("{ts}.{ip}"), sig, public_key_hex).then(|| ip.to_string())
 }
 
 pub struct AppState {
+    pub base_path: String,
     pub admin_hash: Option<String>,
     pub admin_limiter: RateLimiter,
     pub turnstile_site_key: Option<String>,
@@ -144,9 +167,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(scenarios: Vec<Scenario>, cfg: Config) -> Arc<Self> {
-        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret } = cfg;
+        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret, base_path } = cfg;
         let turnstile_on = turnstile_site_key.is_some() && turnstile_secret.is_some();
         Arc::new(AppState {
+            base_path: normalize_base_path(&base_path),
             admin_hash,
             admin_limiter: RateLimiter::new(5, Duration::from_secs(300)),
             turnstile_site_key: turnstile_site_key.filter(|_| turnstile_on),
@@ -161,6 +185,11 @@ impl AppState {
             dev_origin,
             next_conn: AtomicU64::new(1),
         })
+    }
+
+    /// Path attribute for our cookies: the base path, so they are only sent to this app.
+    pub(crate) fn cookie_path(&self) -> &str {
+        if self.base_path.is_empty() { "/" } else { &self.base_path }
     }
 
     pub(crate) fn room(&self, name: &str) -> Option<Arc<Mutex<Room>>> {
@@ -238,6 +267,13 @@ pub fn valid_room_name(n: &str) -> bool {
 // ---- HTTP helpers ----------------------------------------------------------------------------------
 
 pub(crate) fn client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
+    // Behind our Cloudflare Worker, CloudFront only sees Cloudflare. The Worker signs the real
+    // visitor address; trust it only if the signature verifies against EDGE_PUBLIC_KEY.
+    if let Ok(key) = std::env::var("EDGE_PUBLIC_KEY") {
+        if let Some(ip) = edge_ip(headers, &key, crate::engine::now_ms()) {
+            return ip;
+        }
+    }
     // Behind CloudFront (TRUST_CLOUDFRONT=1) the viewer's real address is in CloudFront-Viewer-Address;
     // X-Forwarded-For can be pre-filled by the client, so it's only used when that header is absent.
     if std::env::var("TRUST_CLOUDFRONT").as_deref() == Ok("1") {
@@ -288,8 +324,9 @@ fn seat_choice(role: &Option<String>) -> (Option<Role>, bool) {
 fn joined(state: &AppState, room: &str, player: &crate::engine::Player) -> Response {
     let token = sign_session(room, &player.id, &state.secret);
     let cookie = format!(
-        "{}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{}",
+        "{}={token}; Path={}; HttpOnly; SameSite=Lax; Max-Age=86400{}",
         cookie_name(room),
+        state.cookie_path(),
         if state.secure_cookies { "; Secure" } else { "" }
     );
     let mut res = Json(json!({ "room": room, "playerId": player.id, "role": player.role })).into_response();
@@ -605,6 +642,47 @@ pub fn spawn_reaper(state: Arc<AppState>) {
     });
 }
 
+const ROOT_REDIRECT: &str = "/__omcp_root";
+const OUTSIDE: &str = "/__omcp_outside";
+
+/// Where a request path lands once the base path (e.g. /mcp-oauth) is taken off.
+/// Paths under the base lose the prefix; the bare origin and the bare base redirect to the
+/// app's home; the load balancer's /api/health stays reachable at the root; anything else
+/// outside the base is a 404 (nothing is served from the root by accident).
+pub fn route_under_base(path: &str, base: &str) -> String {
+    if base.is_empty() {
+        return path.to_string();
+    }
+    if path == "/" || path == base {
+        return ROOT_REDIRECT.to_string();
+    }
+    if let Some(rest) = path.strip_prefix(base) {
+        if rest.starts_with('/') {
+            return rest.to_string();
+        }
+    }
+    if path == "/api/health" { path.to_string() } else { OUTSIDE.to_string() }
+}
+
+/// Wrap the app so the base path is stripped before routing.
+pub fn with_base_path(app: Router, base: String) -> impl tower::Service<axum::extract::Request, Response = Response, Error = std::convert::Infallible, Future: Send> + Clone + Send + 'static {
+    use tower::ServiceExt;
+    app.map_request(move |mut req: axum::extract::Request| {
+        if !base.is_empty() {
+            let uri = req.uri();
+            let path = route_under_base(uri.path(), &base);
+            let pq = match uri.query() {
+                Some(q) => format!("{path}?{q}"),
+                None => path,
+            };
+            if let Ok(new) = pq.parse() {
+                *req.uri_mut() = new;
+            }
+        }
+        req
+    })
+}
+
 pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
     let api = Router::new()
         .route("/api/health", get(|| async { "ok" }))
@@ -619,6 +697,11 @@ pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
         .route("/ws/{name}", get(ws_handler));
     let index = static_dir.join("404.html");
     let files = ServeDir::new(static_dir).append_index_html_on_directories(true).not_found_service(ServeFile::new(index));
+    let home = format!("{}/", state.base_path);
+    let api = api.route(ROOT_REDIRECT, get(move || {
+        let home = home.clone();
+        async move { axum::response::Redirect::temporary(&home) }
+    }));
     let mut app = api.fallback_service(files).with_state(state.clone());
     if let Some(origin) = &state.dev_origin {
         // local development: Next dev server on another port talks to this API

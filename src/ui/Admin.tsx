@@ -1,4 +1,5 @@
 "use client";
+import { href } from "./paths.ts";
 import { useCallback, useEffect, useState } from "react";
 import { ROLE_NAMES, type Role } from "../game/types.ts";
 import { API_BASE } from "./api.ts";
@@ -83,7 +84,7 @@ export function Admin() {
   if (auth === "disabled")
     return (
       <main className="wrap stack">
-        <a href="/">← Lobby</a>
+        <a href={href("/")}>← Lobby</a>
         <section className="panel stack">
           <h1>Admin</h1>
           <p className="muted">Admin isn't enabled on this server. Set an admin password with <code>bun run admin:password</code> and restart or redeploy.</p>
@@ -93,7 +94,7 @@ export function Admin() {
   if (auth === "out")
     return (
       <main className="wrap stack admin">
-        <a href="/">← Lobby</a>
+        <a href={href("/")}>← Lobby</a>
         <section className="panel stack" style={{ maxWidth: 460 }}>
           <p className="kicker">Restricted</p>
           <h1>Admin sign-in</h1>
@@ -113,7 +114,7 @@ export function Admin() {
   return (
     <main className="wrap stack admin">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <a href="/">← Lobby</a>
+        <a href={href("/")}>← Lobby</a>
         <button
           className="ghost"
           onClick={async () => {

@@ -4,7 +4,7 @@ export const PASSWORD = "table-pw";
 
 /** Create a room through the lobby UI and land on the table. Returns the room name. */
 export async function createRoom(page: Page, name = "Tester", seat: string = "Client"): Promise<string> {
-  await page.goto("/");
+  await page.goto("./");
   const form = page.getByRole("form", { name: "Create a room" });
   await form.getByLabel("Display name").fill(name);
   await form.getByLabel("Set a room password").fill(PASSWORD);

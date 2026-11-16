@@ -1,3 +1,4 @@
+import { href } from "../../src/ui/paths.ts";
 import { AUTH_REFERENCE, QUICK_REF } from "../../src/game/reference.ts";
 import { ROLES, ROLE_NAMES } from "../../src/game/types.ts";
 
@@ -6,7 +7,7 @@ export const metadata = { title: "Gateway Auth Reference · OAuth for MCP" };
 export default function Reference() {
   return (
     <main className="wrap stack">
-      <a href="/">← Lobby</a>
+      <a href={href("/")}>← Lobby</a>
       <h1>Gateway auth reference</h1>
       <p className="muted" style={{ margin: 0 }}>
         Every way a gateway (the Application seat) can get a credential to an MCP server, what each party checks, and the trap each round teaches.

@@ -1,12 +1,15 @@
 // Browser-side helpers. In production the Rust server serves this page, so the API is same-origin.
 // In development (`next dev` on :3000) set NEXT_PUBLIC_API_BASE=http://localhost:8080.
 import type { Role } from "../game/types.ts";
+import { BASE } from "./paths.ts";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
+// Where the server is. Same origin in production; `next dev` points NEXT_PUBLIC_API_BASE at :8080.
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
+export const API_BASE = `${API_ORIGIN}${BASE}`;
 
 export function wsUrl(room: string): string {
-  const base = API_BASE || (typeof location !== "undefined" ? location.origin : "");
-  return `${base.replace(/^http/, "ws")}/ws/${encodeURIComponent(room)}`;
+  const origin = API_ORIGIN || (typeof location !== "undefined" ? location.origin : "");
+  return `${origin.replace(/^http/, "ws")}${BASE}/ws/${encodeURIComponent(room)}`;
 }
 
 export function rememberName(name?: string): string {

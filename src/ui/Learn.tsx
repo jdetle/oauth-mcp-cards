@@ -1,6 +1,7 @@
 "use client";
 // "Easy one way, hard the other": an interactive walk from paint, to clocks, to signatures.
 // The paint and clock framings follow Brit Cruise's Art of the Problem series.
+import { href } from "./paths.ts";
 import { useMemo, useState } from "react";
 import { Seal, TimesTable } from "./Seal.tsx";
 
@@ -287,7 +288,7 @@ function Signature() {
 export function Learn() {
   return (
     <main className="wrap learn">
-      <a href="/">← Lobby</a>
+      <a href={href("/")}>← Lobby</a>
       <header className="learn-hero">
         <div>
           <p className="kicker">How signatures work</p>
@@ -349,8 +350,8 @@ export function Learn() {
           paint and clock explanations here follow Brit Cruise’s <i>Art of the Problem</i> series, which is well worth watching.
         </p>
         <div className="row">
-          <a href="/">Play a round →</a>
-          <a href="/reference/">Gateway auth reference →</a>
+          <a href={href("/")}>Play a round →</a>
+          <a href={href("/reference/")}>Gateway auth reference →</a>
         </div>
       </section>
     </main>

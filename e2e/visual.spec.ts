@@ -7,7 +7,7 @@ test.skip(!process.env.VISUAL, "set VISUAL=1 to capture review screenshots");
 
 test("capture screens @mobile", async ({ page }, info) => {
   const shot = (name: string, fullPage = false) => page.screenshot({ path: `e2e/screenshots/${info.project.name}-${name}.png`, fullPage });
-  await page.goto("/");
+  await page.goto("./");
   await page.waitForTimeout(600);
   await shot("1-lobby");
 
@@ -29,7 +29,7 @@ test("capture screens @mobile", async ({ page }, info) => {
   await page.getByRole("radiogroup").waitFor();
   await shot("5-assessment-identify", true);
 
-  await page.goto("/learn/");
+  await page.goto("./learn/");
   await page.waitForTimeout(500);
   await shot("6-learn", true);
 });

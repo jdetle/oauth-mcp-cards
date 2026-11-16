@@ -1,4 +1,5 @@
 "use client";
+import { href } from "./paths.ts";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listRooms } from "./api.ts";
@@ -38,8 +39,8 @@ export function Lobby() {
             Four seats: Client, Application, Identity Provider, MCP Server. Pass token slips, make the right call at your step, and keep the chain unbroken.
           </p>
           <div className="row">
-            <a href="/learn/">How signatures work →</a>
-            <a href="/reference/">Gateway auth reference →</a>
+            <a href={href("/learn/")}>How signatures work →</a>
+            <a href={href("/reference/")}>Gateway auth reference →</a>
           </div>
         </div>
         <TimesTable className="hero-table" />

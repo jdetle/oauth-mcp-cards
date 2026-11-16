@@ -87,7 +87,7 @@ test("a second person takes over a sim's seat and never sees the host's cards", 
 
   const ctx = await browser.newContext({ extraHTTPHeaders: {} });
   const guest = await ctx.newPage();
-  await guest.goto("/");
+  await guest.goto("./");
   const row = guest.locator(".room-item", { hasText: room });
   await row.getByRole("button", { name: "Join" }).click();
 
@@ -130,7 +130,7 @@ test("someone without the cookie is asked for the password", async ({ page, brow
   const room = await createRoom(page, "Owner");
   const ctx = await browser.newContext();
   const stranger = await ctx.newPage();
-  await stranger.goto(`/play/?room=${room}`);
+  await stranger.goto(`./play/?room=${room}`);
   await expect(stranger.getByText("Enter the room password to join.")).toBeVisible();
   await expect(stranger.locator(".board")).toHaveCount(0);
   await ctx.close();

@@ -583,3 +583,59 @@ fn a_perfect_sim_rejects_what_a_human_got_wrong() {
         assert_eq!(mcp.correct, Some(true), "sim played: {}", mcp.label);
     }
 }
+
+// ---- base path and edge-signed visitor address ------------------------------------------------
+
+#[test]
+fn base_path_is_normalized_and_validated() {
+    use crate::server::normalize_base_path as n;
+    assert_eq!(n("/mcp-oauth"), "/mcp-oauth");
+    assert_eq!(n("mcp-oauth/"), "/mcp-oauth");
+    assert_eq!(n("/a/b_c"), "/a/b_c");
+    for bad in ["", "/", "//", "/a//b", "/a b", "/../etc", "/a?x", "/<script>"] {
+        assert_eq!(n(bad), "", "{bad:?} should mean site root");
+    }
+}
+
+#[test]
+fn edge_signed_visitor_address_verifies_and_resists_forgery() {
+    use crate::crypto::{ed_sign, new_key_pair};
+    use crate::server::edge_ip;
+    use axum::http::{HeaderMap, HeaderValue};
+    let kp = new_key_pair();
+    let now = 1_800_000_000_000i64;
+    let make = |ip: &str, ts: i64, secret: &str| {
+        let mut h = HeaderMap::new();
+        h.insert("x-edge-ip", HeaderValue::from_str(ip).unwrap());
+        h.insert("x-edge-ts", HeaderValue::from_str(&ts.to_string()).unwrap());
+        h.insert("x-edge-sig", HeaderValue::from_str(&ed_sign(&format!("{ts}.{ip}"), secret)).unwrap());
+        h
+    };
+    assert_eq!(edge_ip(&make("203.0.113.9", now, &kp.secret_key), &kp.public_key, now).as_deref(), Some("203.0.113.9"));
+    // signed by someone else
+    assert_eq!(edge_ip(&make("203.0.113.9", now, &new_key_pair().secret_key), &kp.public_key, now), None);
+    // a captured header replayed later
+    assert_eq!(edge_ip(&make("203.0.113.9", now - 600_000, &kp.secret_key), &kp.public_key, now), None);
+    // the address swapped after signing
+    let mut h = make("203.0.113.9", now, &kp.secret_key);
+    h.insert("x-edge-ip", HeaderValue::from_static("198.51.100.1"));
+    assert_eq!(edge_ip(&h, &kp.public_key, now), None);
+    // no headers at all
+    assert_eq!(edge_ip(&HeaderMap::new(), &kp.public_key, now), None);
+}
+
+#[test]
+fn paths_route_correctly_under_a_base_path() {
+    use crate::server::route_under_base as r;
+    let b = "/mcp-oauth";
+    assert_eq!(r("/mcp-oauth/", b), "/");
+    assert_eq!(r("/mcp-oauth/play/", b), "/play/");
+    assert_eq!(r("/mcp-oauth/api/rooms", b), "/api/rooms");
+    assert_eq!(r("/mcp-oauth/ws/amber-falcon", b), "/ws/amber-falcon");
+    assert_eq!(r("/", b), "/__omcp_root");
+    assert_eq!(r("/mcp-oauth", b), "/__omcp_root");
+    assert_eq!(r("/api/health", b), "/api/health");
+    assert_eq!(r("/api/rooms", b), "/__omcp_outside");
+    assert_eq!(r("/mcp-oauthx/secret", b), "/__omcp_outside");
+    assert_eq!(r("/anything", ""), "/anything");
+}

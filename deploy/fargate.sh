@@ -10,6 +10,8 @@ if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]; then export AWS_PROFILE="${AWS_PROFILE:-ag
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 EXPECTED_ACCOUNT="${EXPECTED_ACCOUNT:-800002328643}"
 BUILD_STACK="${BUILD_STACK:-oauth-mcp-cards-build}"
+# The site lives at jdetle.com/mcp-oauth (via a Cloudflare Worker), so it is built and served under that prefix.
+BASE_PATH="${BASE_PATH-/mcp-oauth}"
 APP_STACK="${APP_STACK:-oauth-mcp-cards-app}"
 
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
@@ -32,7 +34,7 @@ git ls-files -co --exclude-standard | grep -v '^deploy/' | zip -q "$TMP/source.z
 aws s3 cp --only-show-errors "$TMP/source.zip" "s3://$BUCKET/source.zip"
 
 echo "==> Building image in CodeBuild"
-BUILD_ID="$(aws codebuild start-build --project-name "$PROJECT" --environment-variables-override "name=IMAGE_TAG,value=$TAG" --query build.id --output text)"
+BUILD_ID="$(aws codebuild start-build --project-name "$PROJECT" --environment-variables-override "name=IMAGE_TAG,value=$TAG" "name=BASE_PATH,value=$BASE_PATH" --query build.id --output text)"
 while :; do
   STATUS="$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].buildStatus' --output text)"
   PHASE="$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].currentPhase' --output text)"
@@ -58,12 +60,16 @@ else
   EXTRA+=("TurnstileSiteKey=" "TurnstileSecretParam="); echo "    bot check (Turnstile): disabled"
 fi
 
+EDGE_PARAM="${EDGE_KEY_PARAM:-/oauth-mcp-cards/edge-public-key}"
+if has_param "$EDGE_PARAM"; then EXTRA+=("EdgePublicKey=$(aws ssm get-parameter --name "$EDGE_PARAM" --query Parameter.Value --output text)"); echo "    edge-signed visitor addresses: on"; else EXTRA+=("EdgePublicKey="); fi
+EXTRA+=("BasePath=$BASE_PATH")
+
 echo "==> App stack ($APP_STACK) with $REPO:$TAG"
 aws cloudformation deploy --stack-name "$APP_STACK" --template-file deploy/app.yaml --capabilities CAPABILITY_IAM \
   --parameter-overrides "ImageUri=$REPO:$TAG" "CloudFrontPrefixList=$PL" "${EXTRA[@]}" --no-fail-on-empty-changeset
 
 URL="$(out "$APP_STACK" Url)"
-echo "==> Waiting for $URL/api/health"
+echo "==> Waiting for $URL/api/health (site: $URL$BASE_PATH/)"
 for _ in $(seq 1 60); do
   if curl -fsS "$URL/api/health" >/dev/null 2>&1; then echo; echo "Live: $URL"; exit 0; fi
   sleep 10

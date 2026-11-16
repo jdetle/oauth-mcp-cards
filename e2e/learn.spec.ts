@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("explainer: paint, clock and signature labs work @smoke", async ({ page }) => {
-  await page.goto("/learn/");
+  await page.goto("./learn/");
   await expect(page.getByRole("heading", { name: "Easy one way. Hard the other." })).toBeVisible();
 
   // paint: both sides always agree
@@ -27,14 +27,14 @@ test("explainer: paint, clock and signature labs work @smoke", async ({ page }) 
 });
 
 test("reference lists every auth method", async ({ page }) => {
-  await page.goto("/reference/");
+  await page.goto("./reference/");
   for (const name of ["Non-OAuth", "MCP OAuth", "upstream credentials", "OAuth passthrough", "On-Behalf-Of", "ID-JAG", "AWS SigV4", "Zero Trust"]) {
     await expect(page.locator(".ref-table").getByText(name, { exact: false }).first()).toBeVisible();
   }
 });
 
 test("pages have no sideways scroll on a phone @mobile", async ({ page }) => {
-  for (const path of ["/", "/learn/", "/reference/"]) {
+  for (const path of ["./", "./learn/", "./reference/"]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), path).toBeLessThanOrEqual(1);

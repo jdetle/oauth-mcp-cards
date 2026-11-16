@@ -165,6 +165,16 @@ Fields:
 
 `bun run test:rust` will tell you if your new scenario can't be won.
 
+## Hosting at jdetle.com/mcp-oauth
+
+The public address is `https://jdetle.com/mcp-oauth/`. `jdetle.com` is a Cloudflare zone whose other paths go to the blog; a Cloudflare Worker (`worker/edge.js`, script `oauth-mcp-cards-edge`) on the route `jdetle.com/mcp-oauth*` passes only this app's requests, WebSockets included, through to CloudFront. The blog is untouched.
+
+The app is built and served under the prefix: `NEXT_PUBLIC_BASE_PATH=/mcp-oauth` for the front end and `BASE_PATH=/mcp-oauth` for the server, which strips the prefix before routing, scopes cookies to `/mcp-oauth`, keeps `/api/health` at the root for the load balancer, and redirects `/` into the app. `bun run deploy` does both.
+
+Behind the Worker, the server only sees Cloudflare's addresses, which would make every player share one rate limit. So the Worker signs each visitor's address (`x-edge-ip/ts/sig`, Ed25519). Its key pair is generated inside the Worker on first use and kept in Workers KV; the public half is published at `/mcp-oauth/__edge-key`, stored in SSM as `/oauth-mcp-cards/edge-public-key`, and passed to the server as `EDGE_PUBLIC_KEY`. No secret is shared, and a header forged by anyone else won't verify.
+
+Tests run in both modes: `bun run test:ui` (site root) and `bun run test:ui:prefixed` (under `/mcp-oauth`).
+
 ## Deploy (AWS ECS Fargate)
 
 ```bash
@@ -177,6 +187,8 @@ AWS_PROFILE=<profile> bun run deploy
 2. Zips the repo (tracked files only), uploads it, and has CodeBuild build the `Dockerfile` and push to ECR.
 3. Deploys `deploy/app.yaml`: a small VPC (two public subnets, no NAT), an ALB that only accepts traffic from CloudFront's origin-facing prefix list, an ECS cluster, and **one** Fargate task (ARM64, 0.25 vCPU, 512 MB). It runs with `SECURE_COOKIES=1`, behind a CloudFront distribution that provides HTTPS on `*.cloudfront.net`, passes WebSockets through, and caches `/_next/static/*`.
 4. Waits for `/api/health` and prints the URL.
+
+Deploys overlap: the new task starts and passes health checks before the old one stops (with sticky sessions during the overlap), so there is no window where the load balancer has nothing to serve. Open games still end on each deploy, since they live in the old task's memory.
 
 It refuses to run if the credentials aren't for the expected account (`EXPECTED_ACCOUNT`, default `800002328643`). Re-run it to ship a new version. Open games end on each deploy.
 

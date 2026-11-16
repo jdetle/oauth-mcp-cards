@@ -1,4 +1,5 @@
 "use client";
+import { href } from "./paths.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QUICK_REF } from "../game/reference.ts";
 import {
@@ -104,7 +105,7 @@ export function Table({ room }: { room: string }) {
           <p className="kicker">Game over</p>
           <h1 className="room-name">{room}</h1>
           <p>This game was closed by an admin.</p>
-          <a href="/">← Back to the lobby</a>
+          <a href={href("/")}>← Back to the lobby</a>
         </section>
       </main>
     );
@@ -112,7 +113,7 @@ export function Table({ room }: { room: string }) {
   if (g.conn === "unauthorized") {
     return (
       <main className="wrap stack">
-        <a href="/">← Lobby</a>
+        <a href={href("/")}>← Lobby</a>
         <section className="panel stack">
           <h1 className="room-name">{room}</h1>
           <p className="muted">Enter the room password to join.</p>
@@ -123,7 +124,7 @@ export function Table({ room }: { room: string }) {
   }
   if (!g.state || !g.you) return <main className="wrap">Connecting to {room}…</main>;
   rememberRoom(room);
-  return <Game room={room} state={g.state} you={g.you} conn={g.conn} error={g.error} send={g.send} leave={() => { location.href = "/"; }} />;
+  return <Game room={room} state={g.state} you={g.you} conn={g.conn} error={g.error} send={g.send} leave={() => { location.href = href("/"); }} />;
 }
 
 function Game(props: {
@@ -266,7 +267,7 @@ function Hud({ room, state, you, conn, role }: { room: string; state: PublicStat
   const phases = ["warmup", "learning", "assessment"] as const;
   return (
     <header className="hud">
-      <a className="brand" href="/" aria-label="Back to lobby">
+      <a className="brand" href={href("/")} aria-label="Back to lobby">
         OAUTH<i>//</i>MCP
       </a>
       <div className="hud-room">
@@ -404,8 +405,8 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
             <p>Public keys are for everyone. A signature whose seal was made with the matching private key will check out against these.</p>
           </div>
           <div className="row">
-            <a href="/reference/" target="_blank" rel="noreferrer">All auth flows →</a>
-            <a href="/learn/" target="_blank" rel="noreferrer">How signatures work →</a>
+            <a href={href("/reference/")} target="_blank" rel="noreferrer">All auth flows →</a>
+            <a href={href("/learn/")} target="_blank" rel="noreferrer">How signatures work →</a>
           </div>
         </section>
       ) : null}
