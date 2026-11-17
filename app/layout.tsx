@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { TelemetryStart } from "../src/ui/TelemetryStart.tsx";
 
 export const metadata: Metadata = {
   title: "OAuth for MCP",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         {children}
+        <TelemetryStart />
       </body>
     </html>
   );

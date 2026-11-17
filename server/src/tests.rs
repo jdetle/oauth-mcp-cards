@@ -1015,3 +1015,12 @@ fn perfect_sims_beat_every_intruder_in_every_round() {
         }
     }
 }
+
+#[test]
+fn telemetry_routes_hide_room_names() {
+    use crate::server::telemetry_route;
+    assert_eq!(telemetry_route("/api/rooms/amber-otter/join"), "/api/rooms/:room/join");
+    assert_eq!(telemetry_route("/api/admin/rooms/amber-otter"), "/api/admin/rooms/:room");
+    assert_eq!(telemetry_route("/ws/amber-otter"), "/ws/:room");
+    assert_eq!(telemetry_route("/api/rooms"), "/api/rooms");
+}

@@ -72,7 +72,7 @@ When a round ends, every human at the table gets an **I'm ready** button and see
 
 ## Follow the action (phones and tablets)
 
-On the stacked layout the page is one long column, so a move can happen off-screen. With **Follow on** (the default, toggled in the header and remembered per device) the page scrolls to whatever just changed: the scenario when a round starts, the flow picker when a guess is needed, the board when someone moves, what's on the wire when it's your turn, and the result when the round ends. It doesn't fight you: if you touched or scrolled in the last couple of seconds it shows a "Jump to…" pill instead. Card effects are anchored to the page rather than the screen, so they stay with their terminal while it scrolls.
+On the stacked layout the page is one long column, so a move can happen off-screen. With **Auto-scroll on** (the default, toggled in the header and remembered per device) the page scrolls to whatever just changed: the scenario when a round starts, the flow picker when a guess is needed, the board when someone moves, what's on the wire when it's your turn (on a short screen it keeps your first card in view, letting the top of the slip give way), and the result when the round ends. It doesn't fight you: if you touched or scrolled in the last couple of seconds it shows a "Jump to…" pill instead. Card effects are anchored to the page rather than the screen, so they stay with their terminal while it scrolls.
 
 ## Timeline
 
@@ -134,7 +134,7 @@ Open the site, create a room (you get a random name like `amber-falcon`), and sh
 
 ### How to play
 
-- The active seat glows. Your hand is at the bottom: number keys **1-9** play the highlighted cards. On phones the hand is a drawer that opens on your turn.
+- The active seat glows. Your hand is at the bottom: number keys **1-9** play the highlighted cards. On phones there are no number hints (touch only), and the hand sits in the page right under the slip on the wire, so what you're deciding on and the cards you decide with fit on one screen. Between rounds the ready bar is one slim line (clock and button); tap the count to see who's ready.
 - **Checks** (Validate Audience, Scope, Expiry, Issuer, Subject; Registered Key) reveal one thing about what you were handed, without using your turn. See *Have to do vs ought to do*.
 - **Reject** ends the round. Rejecting something invalid is a correct call (and scores), even though the chain is broken upstream.
 - **🔔 No user is present!** In learning and assessment rounds, the first player to call it correctly scores a bonus.
@@ -230,7 +230,7 @@ The identity you deploy with needs CloudFormation plus create rights for IAM rol
 - Room names are generated from a neutral word list, never user-supplied.
 - Passwords: scrypt-hashed per room. Failed joins are rate limited per client IP and room (5/min); room creation is limited per IP (10/min). Behind CloudFront the client IP comes from `CloudFront-Viewer-Address`, which viewers can't forge.
 - Sockets without a valid signed session cookie for that room are closed (code 4401). Messages are capped at 1 KB, strictly schema-checked (unknown fields rejected), and rate limited per socket.
-- No telemetry, no analytics, no third-party fonts. The only third-party script is Cloudflare Turnstile, and only when the bot check is configured.
+- No third-party fonts. Telemetry goes to the same projects as jdetle.com (see **Telemetry**); with no IDs configured (local dev, forks) none of it loads.
 
 ## Layout
 
@@ -246,3 +246,16 @@ scripts/load.ts      load test
 deploy/              Fargate: build.yaml (ECR + CodeBuild), app.yaml (VPC, ALB, ECS, CloudFront), fargate.sh
 Dockerfile           bun (front end) → cargo (server) → debian-slim runtime
 ```
+
+## Telemetry
+
+The point is to know when something breaks. Everything reports into the same projects jdetle.com uses:
+
+| Where | What |
+|---|---|
+| **s10** (Azure) | Server: `server.started`/`stopping`, `room.created`/`joined`/`expired`, `game.started`, `game.round_finished`, `bot_check.failed`, `ws.unauthorized`, a `server.health` metric every minute (rooms, sockets, games in play), and a `bug` for every panic and 5xx. Browser: page views, `api.error`/`api.unreachable`, `ws.closed`, `game.rejected`, uncaught errors, and PostHog's own `$` events mirrored as `posthog.*`. |
+| **Sentry** | Server panics and 5xx responses; browser errors with session replay on error. |
+| **PostHog, GA4, Clarity, Meta Pixel, Plausible** | Product analytics, loaded the way jdetle.com loads them. |
+
+- The browser never holds the s10 key: it posts to `/_s10/v2/envelopes` on this server, which adds the key. Sentry goes through `/monitoring` (a tunnel that only forwards envelopes for our own DSN). Ad-blockers and CORS can't hide a broken page.
+- IDs are public values but live in SSM (`/oauth-mcp-cards/telemetry`), not in this repo, so forks don't report into these projects. Set them with `bash deploy/telemetry.sh KEY=VALUE …`; `deploy/fargate.sh` passes them to the image build. Server-side settings: `S10_INGEST_KEY`, `S10_INGEST_URL`, `SENTRY_DSN`, `TELEMETRY_ENV`, `RELEASE`.

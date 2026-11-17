@@ -31,7 +31,7 @@ function attention(state: PublicState, you: PrivateView, myTurn: boolean, seated
   }
   const moves = r.log.filter((l) => l.role).length;
   if (moves === 0) return { key: `${r.index}:start`, selector: ".scenario", label: "New round" };
-  if (myTurn) return { key: `${r.index}:turn:${r.slips.length}`, selector: r.inFlight ? ".wire" : ".board", label: "Your move" };
+  if (myTurn) return { key: `${r.index}:turn:${r.slips.length}`, selector: r.inFlight ? ".wire" : ".hand-panel", label: "Your move" };
   // someone else moved: watch the board (checks don't move the page; they show on the slip)
   return { key: `${r.index}:move:${r.slips.length}`, selector: ".board", label: "New move" };
 }
@@ -67,7 +67,15 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
     const el = document.querySelector(t.selector);
     if (!el) return;
     const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+    let top = el.getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
+    // your move: if the slip and your first card don't both fit, keep the card on screen
+    // (on a short phone the top of the slip gives way, not the thing you have to tap)
+    const card = t.selector === ".wire" ? document.querySelector(".hand-panel .card.playable") : null;
+    if (card) {
+      const bottom = card.getBoundingClientRect().bottom + scrollY + 8;
+      if (bottom - top > innerHeight) top = bottom - innerHeight;
+    }
+    window.scrollTo({ top: Math.max(0, top), behavior: calm ? "auto" : "smooth" });
     setPending(null);
   }, []);
 
@@ -115,7 +123,7 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
 export function FollowToggle({ on, toggle }: { on: boolean; toggle: () => void }) {
   return (
     <button className={`follow-toggle${on ? " on" : ""}`} onClick={toggle} aria-pressed={on} title="Scroll to each update as it happens">
-      Follow {on ? "on" : "off"}
+      Auto-scroll {on ? "on" : "off"}
     </button>
   );
 }

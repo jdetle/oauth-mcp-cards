@@ -9,7 +9,7 @@ const topOf = async (page: Page, selector: string) => (await page.locator(select
 test("phone: the page follows the action to your move, then to the result @mobile", async ({ page }) => {
   await createRoom(page, "Mo", "MCP Server");
   await fillWithSims(page);
-  await expect(page.getByRole("button", { name: "Follow on" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Auto-scroll on" })).toBeVisible();
   await jumpTo(page, "Learning: On-Behalf-Of");
 
   // three sims play; when it reaches me, what I'm responding to is brought to the top
@@ -24,11 +24,11 @@ test("phone: the page follows the action to your move, then to the result @mobil
   await expect.poll(() => topOf(page, ".result"), { timeout: 5_000 }).toBeLessThan(140);
 });
 
-test("phone: Follow off leaves the page where you put it @mobile", async ({ page }) => {
+test("phone: Auto-scroll off leaves the page where you put it @mobile", async ({ page }) => {
   await createRoom(page, "Still", "MCP Server");
   await fillWithSims(page);
-  await page.getByRole("button", { name: "Follow on" }).click();
-  await expect(page.getByRole("button", { name: "Follow off" })).toBeVisible();
+  await page.getByRole("button", { name: "Auto-scroll on" }).click();
+  await expect(page.getByRole("button", { name: "Auto-scroll off" })).toBeVisible();
   await jumpTo(page, "Learning: On-Behalf-Of");
   await expect(page.locator(".card.playable", { hasText: "Accept" })).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(800);
@@ -37,7 +37,7 @@ test("phone: Follow off leaves the page where you put it @mobile", async ({ page
   await expect(page.locator(".jump-pill")).toHaveCount(0);
   // the choice is remembered
   await page.reload();
-  await expect(page.getByRole("button", { name: "Follow off" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Auto-scroll off" })).toBeVisible();
 });
 
 test("phone: while you're touching the screen it offers a jump instead of scrolling @mobile", async ({ page }) => {

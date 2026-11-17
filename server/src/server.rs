@@ -86,11 +86,36 @@ pub struct Room {
     sim_pending: bool,
     /// a wake-up is scheduled for the ready check's idle deadline
     ready_timer: bool,
+    /// telemetry: what has already been reported for this room
+    reported_started: std::cell::Cell<bool>,
+    reported_rounds: std::cell::Cell<usize>,
 }
 
 impl Room {
+    /// Report game milestones once each (game started, every finished round).
+    fn observe(&self) {
+        let g = &self.game;
+        let humans = g.players.iter().filter(|p| p.role.is_some() && !p.bot).count();
+        let sims = g.players.iter().filter(|p| p.bot).count();
+        if g.started && !self.reported_started.get() {
+            self.reported_started.set(true);
+            crate::telemetry::event("game.started", json!({ "room": g.room, "humans": humans, "sims": sims, "online": self.conns.len() }));
+        }
+        let n = g.archive.len();
+        if n > self.reported_rounds.get() {
+            self.reported_rounds.set(n);
+            if let Some(a) = g.archive.last() {
+                crate::telemetry::event("game.round_finished", json!({
+                    "room": g.room, "round": a.index, "title": a.title, "phase": format!("{:?}", a.phase).to_lowercase(),
+                    "success": a.success, "humans": humans, "sims": sims, "online": self.conns.len(),
+                }));
+            }
+        }
+    }
+
     /// Send every socket the public state plus its own private view.
     fn broadcast(&self) {
+        self.observe();
         let online: std::collections::HashSet<&str> = self.conns.values().map(|c| c.player_id.as_str()).collect();
         let spectators = self.game.players.iter().filter(|p| p.role.is_none() && online.contains(p.id.as_str())).count();
         let state = self.game.public_state(&|id| online.contains(id), spectators);
@@ -224,7 +249,12 @@ impl AppState {
         })
         .await
         .unwrap_or(false);
-        if ok { Ok(()) } else { Err(error(StatusCode::FORBIDDEN, "Bot check failed. Reload the page and try again.")) }
+        if ok {
+            Ok(())
+        } else {
+            crate::telemetry::event("bot_check.failed", json!({}));
+            Err(error(StatusCode::FORBIDDEN, "Bot check failed. Reload the page and try again."))
+        }
     }
 }
 
@@ -401,9 +431,11 @@ async fn create_room(
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
         name.clone(),
-        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), created: Instant::now(), closed: false, last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false, ready_timer: false })),
+        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), created: Instant::now(), closed: false, last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false, ready_timer: false, reported_started: Default::default(), reported_rounds: Default::default() })),
     );
+    let total = rooms.len();
     drop(rooms);
+    crate::telemetry::event("room.created", json!({ "room": name, "rooms": total, "spectate": spectate }));
     joined(&state, &name, &player)
 }
 
@@ -447,7 +479,9 @@ async fn join_room(
     let player = r.game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     r.last_active = Instant::now();
     r.broadcast();
+    let seated = r.game.players.len();
     drop(r);
+    crate::telemetry::event("room.joined", json!({ "room": name, "players": seated, "spectate": spectate }));
     drive_sims(room.clone());
     joined(&state, &name, &player)
 }
@@ -490,6 +524,7 @@ async fn ws_handler(State(state): State<Arc<AppState>>, Path(name): Path<String>
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc<Mutex<Room>>>, player: Option<String>) {
     let (mut sink, mut stream) = socket.split();
     let (Some(room), Some(player_id)) = (room, player) else {
+        crate::telemetry::event("ws.unauthorized", json!({}));
         let msg = serde_json::to_string(&ServerMessage::Error { message: "Not joined. Enter the room password to join." }).unwrap();
         let _ = sink.send(Message::Text(msg.into())).await;
         let _ = sink.send(Message::Close(Some(CloseFrame { code: 4401, reason: "unauthorized".into() }))).await;
@@ -684,11 +719,32 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
 pub fn spawn_reaper(state: Arc<AppState>) {
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(300)).await;
+            // every minute: report health; every fifth: drop idle rooms
+            for _ in 0..5 {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let (rooms, sockets, playing) = {
+                    let rooms = state.rooms.lock().unwrap();
+                    let mut sockets = 0;
+                    let mut playing = 0;
+                    for r in rooms.values() {
+                        let r = r.lock().unwrap();
+                        sockets += r.conns.len();
+                        playing += usize::from(r.game.round.is_some() && !r.conns.is_empty());
+                    }
+                    (rooms.len(), sockets, playing)
+                };
+                crate::telemetry::metric("server.health", json!({ "rooms": rooms, "sockets": sockets, "rooms_playing": playing }), json!({}));
+            }
+            let mut dropped = 0;
             state.rooms.lock().unwrap().retain(|_, r| {
                 let r = r.lock().unwrap();
-                !r.conns.is_empty() || r.last_active.elapsed() < IDLE_TTL
+                let keep = !r.conns.is_empty() || r.last_active.elapsed() < IDLE_TTL;
+                dropped += usize::from(!keep);
+                keep
             });
+            if dropped > 0 {
+                crate::telemetry::event("room.expired", json!({ "count": dropped }));
+            }
         }
     });
 }
@@ -745,7 +801,9 @@ pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
         .route("/api/rooms", get(list_rooms).post(create_room))
         .route("/api/rooms/{name}/join", post(join_room))
         .route("/api/rooms/{name}/history", get(room_history))
-        .route("/ws/{name}", get(ws_handler));
+        .route("/ws/{name}", get(ws_handler))
+        .route("/_s10/v2/envelopes", post(s10_proxy))
+        .route("/monitoring", post(sentry_tunnel));
     let index = static_dir.join("404.html");
     let files = ServeDir::new(static_dir).append_index_html_on_directories(true).not_found_service(ServeFile::new(index));
     let home = format!("{}/", state.base_path);
@@ -764,7 +822,8 @@ pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
                 .allow_credentials(true),
         );
     }
-    app.layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+    app.layer(axum::middleware::from_fn(report_failures))
+    .layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     ))
@@ -772,4 +831,73 @@ pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     ))
+}
+
+// ---- telemetry --------------------------------------------------------------------------------
+
+/// Any 5xx is a breakage worth hearing about: report it with its route and timing.
+async fn report_failures(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let path = req.uri().path().to_string();
+    let method = req.method().to_string();
+    let started = Instant::now();
+    let res = next.run(req).await;
+    let status = res.status().as_u16();
+    if status >= 500 {
+        let route = telemetry_route(&path);
+        crate::telemetry::error(
+            &format!("HTTP {status} on {method} {route}"),
+            json!({ "status": status, "method": method, "route": route, "duration_ms": started.elapsed().as_millis() as u64 }),
+        );
+    }
+    res
+}
+
+/// Strip room names out of paths so failures group by route.
+pub fn telemetry_route(path: &str) -> String {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        ["", "api", "rooms", _, rest @ ..] => format!("/api/rooms/:room/{}", rest.join("/")),
+        ["", "api", "admin", "rooms", _] => "/api/admin/rooms/:room".into(),
+        ["", "ws", _] => "/ws/:room".into(),
+        _ => path.chars().take(80).collect(),
+    }
+}
+
+const MAX_TELEMETRY_BYTES: usize = 256 * 1024;
+
+/// Browser s10 envelopes, same-origin: we add the ingest key, so the page never needs it.
+async fn s10_proxy(headers: HeaderMap, body: axum::body::Bytes) -> StatusCode {
+    let Some((url, key)) = crate::telemetry::s10_target() else { return StatusCode::NO_CONTENT };
+    if body.is_empty() || body.len() > MAX_TELEMETRY_BYTES {
+        return StatusCode::PAYLOAD_TOO_LARGE;
+    }
+    let gzip = headers.get(header::CONTENT_ENCODING).and_then(|v| v.to_str().ok()) == Some("gzip");
+    tokio::task::spawn_blocking(move || {
+        let mut req = ureq::post(&url)
+            .timeout(Duration::from_secs(10))
+            .set("authorization", &format!("Bearer {key}"))
+            .set("content-type", "application/x-ndjson");
+        if gzip {
+            req = req.set("content-encoding", "gzip");
+        }
+        if let Err(e) = req.send_bytes(&body) {
+            eprintln!("telemetry: s10 proxy failed: {e}");
+        }
+    });
+    StatusCode::ACCEPTED
+}
+
+/// Sentry's tunnel: forwards browser envelopes, but only ones addressed to our own project.
+async fn sentry_tunnel(body: axum::body::Bytes) -> StatusCode {
+    let Some(dsn) = crate::telemetry::dsn() else { return StatusCode::NO_CONTENT };
+    if body.len() > MAX_TELEMETRY_BYTES * 4 {
+        return StatusCode::PAYLOAD_TOO_LARGE;
+    }
+    let Some(url) = crate::telemetry::tunnel_target(&body, &dsn) else { return StatusCode::BAD_REQUEST };
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = ureq::post(&url).timeout(Duration::from_secs(10)).set("content-type", "application/x-sentry-envelope").send_bytes(&body) {
+            eprintln!("telemetry: Sentry tunnel failed: {e}");
+        }
+    });
+    StatusCode::OK
 }

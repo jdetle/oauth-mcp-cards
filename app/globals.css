@@ -804,3 +804,73 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
 /* lobby: a plain way back to the game you're in */
 .return-to-game { margin: -8px 0 18px; padding: 10px 14px; border-left: 3px solid var(--cyan); background: rgba(41, 240, 255, 0.06); font-size: 0.95rem; }
 .return-to-game a { display: inline-block; padding: 8px 0; font-weight: 600; }
+
+/* ---- phones and touch: the iPhone pass (docs/adversarial-review/reviews/2026-11-16-iphone-ux.md) ----
+   1. Fields at 16px: iOS Safari zooms the page on focus for anything smaller, and stays zoomed.
+   2. Every control at least 44pt tall.
+   3. No label under 12px.
+   4. The hand sits in the page right under the slip on the wire, not in a drawer over it.
+   5. The ready bar is one slim line, so the round's result stays readable. */
+select {
+  -webkit-appearance: none; appearance: none;
+  padding-right: 2rem;
+  background-image: linear-gradient(45deg, transparent 50%, var(--cyan) 50%), linear-gradient(135deg, var(--cyan) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+@media (max-width: 1099px), (pointer: coarse) {
+  input, select, textarea, .hostbar select { font-size: 16px; }
+  button, select, .hostbar button, .hostbar select, .hand-toggle, .tabs button, .follow-toggle, .jump-pill { min-height: 44px; }
+  .follow-toggle { padding-inline: 12px; }
+  /* text links that act as buttons get a full-height hit area */
+  .lobby a, .return-to-game a, .ref-links a, .rooms a, .side a, .hud a.brand, .learn-nav a, nav a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+@media (max-width: 1099px) {
+  label, .pill, .kicker, .terminal .t-score, .terminal .t-sit, .core .idle, .chain, .slip .slip-title, .fault-tag, .card .cat,
+  .tabs button, .score th, .ref-table th, .fx-role, .sim-tag, .hud-room span, .hud-label, .hud-label b, .role-chip, .hostbar-label,
+  .hostbar button, .slip-seals figcaption, .keyring figcaption, .slip-seals p, .slip-note, .keyring p, .learn h4, .pot figcaption,
+  .compare figcaption, .incoming, .incoming b, .admin-player i, .tl-empty, .tl-round, .tl-meta, .tl-feed li.tl-sys, p.tl-sys, .chip,
+  .call-side small, .call-word, .calls-who, .fx-call .chip, .ready-roster li em, .hand-group-head b, .dil, .intrusion b,
+  .follow-toggle, .jump-pill { font-size: 0.75rem; }
+
+  /* the hand: in the page, right after the slip on the wire */
+  .hand-panel { position: static; z-index: auto; border: 1px solid color-mix(in srgb, var(--c) 50%, transparent); box-shadow: inset 0 0 24px color-mix(in srgb, var(--c) 10%, transparent); padding: 10px 12px 12px; }
+  .hand-body { max-height: none; overflow: visible; }
+  .hand-panel .incoming { display: none; } /* the slip is right above it */
+  .game { padding-bottom: 16px; }
+
+  /* the ready bar: one line (clock + button); tap the count for who's ready */
+  .ready-bar { gap: 6px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  .ready-bar:not(.open) .ready-roster, .ready-bar:not(.open) .ready-copy .small { display: none; }
+  .ready-main { flex-wrap: nowrap; gap: 10px; }
+  .ready-copy { flex: 1 1 auto; min-width: 0; }
+  .ready-timer { min-width: 64px; }
+  .ready-clock { font-size: 1.05rem; }
+  .ready-main button { flex: none; }
+  .game:has(.ready-bar) { padding-bottom: 84px; }
+  .game:has(.ready-bar.open) { padding-bottom: 220px; }
+}
+.ready-count { border: 0; background: transparent; padding: 0; clip-path: none; text-align: left; display: grid; gap: 2px; letter-spacing: normal; text-transform: none; color: inherit; font-size: inherit; }
+.ready-count:hover:not(:disabled) { background: transparent; box-shadow: none; }
+.ready-count strong { text-transform: uppercase; letter-spacing: 0.16em; font-size: 0.82rem; color: var(--cyan); }
+.ready-count .who { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+@media (min-width: 1100px) { .ready-count { pointer-events: none; } .ready-count .who { display: none; } }
+
+/* keyboard hints are noise on a touch screen */
+@media (hover: none) and (pointer: coarse) {
+  .card .key, .kbd-only { display: none; }
+}
+@media not ((hover: none) and (pointer: coarse)) { .touch-only { display: none; } }
+@media (max-width: 1099px) {
+  /* your cards first; the slips you're holding are reference, so they go underneath */
+  .hand-body { display: flex; flex-direction: column; }
+  .hand-body .my-slips { order: 2; margin: 10px 0 0; }
+  .hand-head { margin-bottom: 4px; gap: 0 10px; }
+  .hand-head .hand-toggle { min-height: 44px; }
+  .hand-group-head { gap: 2px 10px; }
+  .hand { padding-top: 4px; }
+  /* lobby links that sit side by side act as buttons */
+  .row > a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+@media (max-width: 1099px) { code, kbd { font-size: max(0.85em, 12px); } }

@@ -33,8 +33,21 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 git ls-files -co --exclude-standard | grep -v '^deploy/' | zip -q "$TMP/source.zip" -@
 aws s3 cp --only-show-errors "$TMP/source.zip" "s3://$BUCKET/source.zip"
 
+# Telemetry IDs (the same projects as jdetle.com), kept in SSM so forks of this repo don't
+# report into them. One KEY=VALUE per line; set with deploy/telemetry.sh. All are public values.
+TELEMETRY_PARAM="${TELEMETRY_PARAM:-/oauth-mcp-cards/telemetry}"
+OVERRIDES=("name=IMAGE_TAG,value=$TAG" "name=BASE_PATH,value=$BASE_PATH" "name=RELEASE,value=$TAG")
+if TELEMETRY="$(aws ssm get-parameter --name "$TELEMETRY_PARAM" --query Parameter.Value --output text 2>/dev/null)"; then
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^(NEXT_PUBLIC_[A-Z0-9_]+|S10_INGEST_KEY|S10_INGEST_URL)$ && -n "$v" ]] && OVERRIDES+=("name=$k,value=$v")
+  done <<< "$TELEMETRY"
+  echo "    telemetry: $(( ${#OVERRIDES[@]} - 3 )) settings from $TELEMETRY_PARAM"
+else
+  echo "    telemetry: off (run deploy/telemetry.sh)"
+fi
+
 echo "==> Building image in CodeBuild"
-BUILD_ID="$(aws codebuild start-build --project-name "$PROJECT" --environment-variables-override "name=IMAGE_TAG,value=$TAG" "name=BASE_PATH,value=$BASE_PATH" --query build.id --output text)"
+BUILD_ID="$(aws codebuild start-build --project-name "$PROJECT" --environment-variables-override "${OVERRIDES[@]}" --query build.id --output text)"
 while :; do
   STATUS="$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].buildStatus' --output text)"
   PHASE="$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].currentPhase' --output text)"

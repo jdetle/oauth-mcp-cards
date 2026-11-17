@@ -63,7 +63,7 @@ Resources:
                 - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${REPO_URI%%/*}
             build:
               commands:
-                - docker build --build-arg BASE_PATH=$BASE_PATH -t $REPO_URI:$IMAGE_TAG .
+                - ARGS=""; for v in BASE_PATH RELEASE S10_INGEST_KEY S10_INGEST_URL NEXT_PUBLIC_SENTRY_DSN NEXT_PUBLIC_POSTHOG_KEY NEXT_PUBLIC_POSTHOG_HOST NEXT_PUBLIC_GA4_ID NEXT_PUBLIC_CLARITY_ID NEXT_PUBLIC_META_PIXEL_ID NEXT_PUBLIC_PLAUSIBLE_SCRIPT_ID; do ARGS="$ARGS --build-arg $v"; done; docker build $ARGS -t $REPO_URI:$IMAGE_TAG .
             post_build:
               commands:
                 - docker push $REPO_URI:$IMAGE_TAG

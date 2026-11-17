@@ -16,6 +16,8 @@ export function ReadyBar({ state, you, send }: { state: PublicState; you: Privat
   // count down locally from the server's "time left" at the moment this state arrived
   const deadline = useRef(0);
   const [now, setNow] = useState(() => Date.now());
+  // phones show one slim line; tap the count to see who's ready
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     if (rc) deadline.current = Date.now() + rc.remainingMs;
   }, [rc]);
@@ -34,10 +36,13 @@ export function ReadyBar({ state, you, send }: { state: PublicState; you: Privat
   const status = (id: string) => (rc.ready.includes(id) ? "ready" : rc.away.includes(id) ? "away" : "waiting");
 
   return (
-    <section className="ready-bar" aria-label="Ready for the next round">
+    <section className={`ready-bar${open ? " open" : ""}`} aria-label="Ready for the next round">
       <div className="ready-main">
         <div className="ready-copy">
-          <strong>Next round</strong>
+          <button className="ready-count" onClick={() => setOpen(!open)} aria-expanded={open}>
+            <strong>Next round</strong>
+            <span className="who">{rc.ready.length} of {here} ready {open ? "▾" : "▴"}</span>
+          </button>
           <span className="muted small">
             {rc.waiting.length === 0 && here > 0 ? "Everyone's ready…" : `Starts when everyone's ready, or after ${Math.round(rc.timeoutMs / 1000)} seconds with no clicks.`}
           </span>

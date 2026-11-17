@@ -15,6 +15,7 @@ import {
   type ServerMessage,
 } from "../game/types.ts";
 import { wsUrl } from "./api.ts";
+import { track } from "./telemetry.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
@@ -51,6 +52,7 @@ function useGame(room: string, attempt: number) {
       };
       ws.onclose = (e) => {
         if (stopped) return;
+        if (e.code !== 1000) track("ws.closed", { code: e.code, wasOpen: backoff === 500, backoff });
         if (e.code === 4401) return setConn("unauthorized");
         if (e.code === 4410) return setConn("deleted"); // an admin closed this game
         setConn("closed");
@@ -69,7 +71,10 @@ function useGame(room: string, attempt: number) {
           setState(m.state);
           setYou(m.you);
           setConn("open");
-        } else if (m.t === "error") setError(m.message);
+        } else if (m.t === "error") {
+          setError(m.message);
+          track("game.rejected", { message: m.message.slice(0, 120) });
+        }
       };
     };
     connect();
@@ -224,7 +229,7 @@ function Game(props: {
                 <button className="hand-toggle" onClick={() => setHandOpen(!handOpen)} aria-expanded={handOpen} aria-controls="hand-body">
                   <strong>Your hand · {ROLE_NAMES[myRoundRole]}</strong> <span aria-hidden>{handOpen ? "▾" : "▴"}</span>
                 </button>
-                <span className="muted small">{myTurn ? "Your turn: press 1–9 or tap a highlighted card" : "Wait for your turn"}</span>
+                <span className="muted small">{myTurn ? <><span className="kbd-only">Your turn: press 1–9 or tap a highlighted card</span><span className="touch-only">Your turn: tap a highlighted card</span></> : "Wait for your turn"}</span>
               </div>
               {myTurn && r.inFlight && r.slips.length ? (
                 <p className="incoming">

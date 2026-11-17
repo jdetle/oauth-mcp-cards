@@ -30,10 +30,10 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, testIgnore: /intruder\.spec|layout\.spec/ },
-    { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile|@smoke/, testIgnore: /intruder\.spec|layout\.spec/ },
+    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, testIgnore: /intruder\.spec|layout\.spec|iphone\.spec/ },
+    { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile|@smoke/, testIgnore: /intruder\.spec|layout\.spec|iphone\.spec/ },
     // Safari's engine on an iPhone: layout checks (alignment bugs that Chrome doesn't show)
-    { name: "iphone", use: { ...devices["iPhone 15 Pro"], browserName: "webkit" }, testMatch: /layout\.spec/ },
+    { name: "iphone", use: { ...devices["iPhone 15 Pro"], browserName: "webkit" }, testMatch: /layout\.spec|iphone\.spec/ },
     // a second server where an intruder swaps the MCP Server's token in every round
     ...(external ? [] : [{ name: "intruder", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, baseURL: `http://localhost:${PORT + 2}${BASE_PATH}/` }, testMatch: /intruder\.spec/ }]),
   ],

@@ -2,6 +2,9 @@
 // In development (`next dev` on :3000) set NEXT_PUBLIC_API_BASE=http://localhost:8080.
 import type { Role } from "../game/types.ts";
 import { BASE } from "./paths.ts";
+import { track } from "./telemetry.ts";
+
+const routeOf = (path: string) => path.replace(/\/rooms\/[^/]+\//, "/rooms/:room/");
 
 // Where the server is. Same origin in production; `next dev` points NEXT_PUBLIC_API_BASE at :8080.
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
@@ -30,8 +33,10 @@ async function post(path: string, body: unknown): Promise<{ ok: boolean; data: R
       credentials: "include", // the server sets an HttpOnly session cookie for this room
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) track("api.error", { route: routeOf(path), status: res.status, message: String(data.error ?? "").slice(0, 120) });
     return { ok: res.ok, data };
-  } catch {
+  } catch (e) {
+    track("api.unreachable", { route: routeOf(path), message: String(e).slice(0, 120) });
     return { ok: false, data: { error: "Can't reach the game server." } };
   }
 }

@@ -14,6 +14,9 @@
 //!   INTRUDER_RATE   0..1, chance per round that a token is swapped in transit (default 0.35)
 //!   INTRUDER_TARGET application | mcp: pin whose token the intruder goes after (default: random)
 //!   READY_TIMEOUT_MS  idle time after a round before the table moves on by itself (default 60000)
+//!   S10_INGEST_KEY  s10 ingest key (same project as jdetle.com); S10_INGEST_URL overrides the endpoint
+//!   SENTRY_DSN      Sentry project DSN for server errors and panics; also enables the /monitoring tunnel
+//!   TELEMETRY_ENV   environment tag (default production); RELEASE: version tag
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
 //!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~5.6-6.3s, so each card can be read)
 mod admin;
@@ -22,6 +25,7 @@ mod engine;
 mod explain;
 mod scenario;
 mod server;
+mod telemetry;
 mod types;
 mod validate;
 
@@ -63,6 +67,8 @@ async fn main() {
         eprintln!("note: no front end at {} (run `bun run build`); API and sockets still work", static_dir.display());
     }
 
+    telemetry::init(telemetry::Settings::from_env());
+    telemetry::event("server.started", serde_json::json!({ "scenarios": scenarios.len() }));
     let cfg = server::Config {
         internal_token: env("INTERNAL_TOKEN"),
         secure_cookies: env("SECURE_COOKIES").as_deref() == Some("1"),
@@ -98,6 +104,8 @@ async fn main() {
             #[cfg(not(unix))]
             let _ = tokio::signal::ctrl_c().await;
             eprintln!("shutting down");
+            telemetry::event("server.stopping", serde_json::json!({}));
+            telemetry::flush_blocking();
         })
         .await
         .expect("server");
