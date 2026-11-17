@@ -428,6 +428,28 @@ impl AppState {
         saved
     }
 
+    /// Close a room for good: out of memory and out of the store, every socket told why and
+    /// closed with `code` (4410 admin, 4411 host). Returns how many sockets were open.
+    pub(crate) async fn close_room(self: &Arc<Self>, name: &str, code: u16, notice: &str) -> Option<usize> {
+        let room = self.rooms.lock().unwrap().remove(name)?;
+        let conns = {
+            let mut r = room.lock().unwrap();
+            r.closed = true;
+            let msg = json!({ "t": "error", "message": notice }).to_string();
+            for c in r.conns.values() {
+                let _ = c.tx.try_send(Message::Text(msg.clone().into()));
+                let _ = c.tx.try_send(Message::Close(Some(CloseFrame { code, reason: "room closed".into() })));
+            }
+            r.conns.len()
+        };
+        if let Some(store) = self.store.clone() {
+            let n = name.to_string();
+            let _ = tokio::task::spawn_blocking(move || store.delete(&n)).await;
+        }
+        crate::telemetry::event("room.closed", json!({ "room": name, "code": code, "sockets": conns }));
+        Some(conns)
+    }
+
     /// Someone did something: the idle clock starts again.
     pub(crate) fn touch(&self) {
         *self.last_activity.lock().unwrap() = Instant::now();
@@ -806,6 +828,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
     let send_one = |tx: &mpsc::Sender<Message>, m: ServerMessage| {
         let _ = tx.try_send(Message::Text(serde_json::to_string(&m).unwrap_or_default().into()));
     };
+    let mut ending: Option<String> = None;
     while let Some(Ok(msg)) = stream.next().await {
         let text = match msg {
             Message::Text(t) => t.to_string(),
@@ -832,6 +855,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
             send_one(&tx, ServerMessage::Pong);
             continue;
         }
+        if parsed == ClientMessage::End {
+            // the host ends the game early: the room closes for everyone and isn't kept
+            if r.game.host_id.as_deref() != Some(player_id.as_str()) {
+                send_one(&tx, ServerMessage::Error { message: "Only the host can end the game." });
+                continue;
+            }
+            ending = Some(r.game.room.clone());
+            break;
+        }
         match apply(&mut r.game, &player_id, parsed) {
             Ok(()) => {
                 r.last_active = Instant::now();
@@ -843,6 +875,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
             }
             Err(e) => send_one(&tx, ServerMessage::Error { message: &e.0 }),
         }
+    }
+    if let Some(name) = ending {
+        state.close_room(&name, crate::admin::CLOSE_ENDED, "The host ended this game.").await;
+        // let this socket's own "ended" notice and close frame go out before it is torn down
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
     {
         let mut r = room.lock().unwrap();
@@ -934,7 +971,7 @@ pub fn parse_client_message(raw: &str) -> Option<ClientMessage> {
     let v: serde_json::Value = serde_json::from_str(raw).ok()?;
     let obj = v.as_object()?;
     let allowed: &[&str] = match obj.get("t")?.as_str()? {
-        "ping" | "stand" | "start" | "tell" => &["t"],
+        "ping" | "stand" | "start" | "tell" | "end" => &["t"],
         "ready" => &["t", "ready"],
         "sit" => &["t", "role"],
         "play" => &["t", "cardId"],
@@ -969,7 +1006,8 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
         ClientMessage::Tell => g.tell(player_id),
         ClientMessage::Host { action, round } => g.host_action(player_id, action, round),
         ClientMessage::Ready { ready } => g.set_ready(player_id, ready),
-        ClientMessage::Ping => Ok(()),
+        // handled by the server before it gets here (it closes the room)
+        ClientMessage::Ping | ClientMessage::End => Ok(()),
     }
 }
 

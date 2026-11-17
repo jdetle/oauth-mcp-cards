@@ -904,3 +904,9 @@ select {
 /* ---- the server sleeps when nobody's playing; this shows while it starts back up ---- */
 .waking { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #1a1204; border-bottom: 1px solid var(--amber); color: #ffe2b0; font-size: 0.9rem; }
 .waking-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 10px var(--amber); animation: pulse 1s infinite; }
+
+/* host: end the game early (two taps) */
+.hostbar .end-game { margin-left: auto; }
+.hostbar.ending { border-left: 3px solid var(--red); padding: 8px 10px; background: rgba(255, 45, 85, 0.06); }
+.end-ask { flex: 1 1 220px; font-size: 0.95rem; color: #ffd3dc; }
+@media (max-width: 719px) { .hostbar .end-game { margin-left: 0; } }

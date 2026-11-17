@@ -803,6 +803,8 @@ pub enum ClientMessage {
     Tell,
     Host { action: HostAction, round: Option<u32> },
     Ready { ready: bool },
+    /// host only: end the game now and close the room for everyone
+    End,
     Ping,
 }
 

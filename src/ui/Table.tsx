@@ -26,7 +26,7 @@ import { KeysContext, Seal } from "./Seal.tsx";
 import { CallPair, DiligenceTag, rememberRoom, Timeline } from "./Timeline.tsx";
 import { TokenSlip } from "./Slip.tsx";
 
-type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted" | "asleep";
+type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted" | "ended" | "asleep";
 
 /** WebSocket with automatic reconnect. The session cookie authenticates it; close code 4401 = not joined. */
 function useGame(room: string, attempt: number) {
@@ -57,6 +57,7 @@ function useGame(room: string, attempt: number) {
         if (e.code !== 1000) track("ws.closed", { code: e.code, wasOpen: backoff === 500, backoff });
         if (e.code === 4401) return setConn("unauthorized");
         if (e.code === 4410) return setConn("deleted"); // an admin closed this game
+        if (e.code === 4411) return setConn("ended"); // the host ended it
         if (e.code === 4408) return setConn("asleep"); // idle: the server went to sleep; don't wake it by reconnecting
         setConn("closed");
         retry = setTimeout(connect, backoff);
@@ -107,14 +108,14 @@ export function Table({ room }: { room: string }) {
   const [attempt, setAttempt] = useState(0);
   const g = useGame(room, attempt);
 
-  if (g.conn === "deleted") {
+  if (g.conn === "deleted" || g.conn === "ended") {
     rememberRoom(null);
     return (
       <main className="wrap stack">
         <section className="panel stack">
           <p className="kicker">Game over</p>
           <h1 className="room-name">{room}</h1>
-          <p>This game was closed by an admin.</p>
+          <p>{g.conn === "ended" ? "The host ended this game. The room is closed." : "This game was closed by an admin."}</p>
           <a href={href("/")}>← Back to the lobby</a>
         </section>
       </main>
@@ -352,6 +353,18 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
   const r = state.round;
   const [target, setTarget] = useState(r?.index ?? 0);
   useEffect(() => setTarget(r?.index ?? 0), [r?.index]);
+  // ending the game is two taps, so it can't happen by accident
+  const [ending, setEnding] = useState(false);
+  if (ending) {
+    return (
+      <section className="hostbar ending" aria-label="End the game">
+        <span className="hostbar-label">Host</span>
+        <span className="end-ask">End the game for everyone and close this room? It can't be reopened.</span>
+        <button className="danger" onClick={() => send({ t: "end" })}>Yes, end it</button>
+        <button className="ghost" autoFocus onClick={() => setEnding(false)}>Keep playing</button>
+      </section>
+    );
+  }
   return (
     <section className="hostbar" aria-label="Host controls">
       <span className="hostbar-label">Host</span>
@@ -369,6 +382,7 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
         </select>
       </label>
       <button onClick={() => send({ t: "host", action: "goto", round: target })}>Jump</button>
+      <button className="danger end-game" onClick={() => setEnding(true)}>End game</button>
     </section>
   );
 }

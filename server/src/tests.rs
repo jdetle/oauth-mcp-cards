@@ -1059,3 +1059,9 @@ fn snapshot_restores_a_game_mid_round() {
     }
     assert!(back.round.as_ref().unwrap().result.as_ref().unwrap().success);
 }
+
+#[test]
+fn end_message_parses() {
+    assert_eq!(crate::server::parse_client_message(r#"{"t":"end"}"#), Some(ClientMessage::End));
+    assert_eq!(crate::server::parse_client_message(r#"{"t":"end","x":1}"#), None);
+}

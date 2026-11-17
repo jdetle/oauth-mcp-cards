@@ -357,6 +357,7 @@ export type ClientMessage =
   | { t: "identify"; flow: Flow }
   | { t: "tell" }
   | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal" | "addBots" | "removeBots"; round?: number }
+  | { t: "end" } // host only: end the game now and close the room for everyone
   | { t: "ready"; ready: boolean }
   | { t: "ping" };
 

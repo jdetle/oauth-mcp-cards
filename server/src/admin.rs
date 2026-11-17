@@ -4,7 +4,6 @@ use crate::crypto::{check_password, hmac_hex, safe_eq};
 use crate::engine::now_ms;
 use crate::server::{client_ip, error, read_cookie, valid_room_name, AppState};
 use crate::types::RoundStatus;
-use axum::extract::ws::{CloseFrame, Message};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -18,6 +17,8 @@ const COOKIE: &str = "omcp_admin";
 const SESSION_MS: i64 = 8 * 3600 * 1000;
 /// WebSocket close code sent to players when an admin deletes their room.
 pub const CLOSE_DELETED: u16 = 4410;
+/// the host ended the game
+pub const CLOSE_ENDED: u16 = 4411;
 
 pub fn sign_admin(exp: i64, secret: &[u8]) -> String {
     format!("{exp}.{}", hmac_hex(secret, &format!("admin:{exp}")))
@@ -144,20 +145,13 @@ pub async fn delete_room(State(state): State<Arc<AppState>>, Path(name): Path<St
     }
     // it may only be in the store (another server has it, or it hasn't been opened since a deploy)
     let _ = state.fresh_room(&name).await;
-    let Some(room) = state.rooms.lock().unwrap().remove(&name) else { return error(StatusCode::NOT_FOUND, "No such room.") };
-    if let Some(store) = state.store.clone() {
-        let n = name.clone();
-        let _ = tokio::task::spawn_blocking(move || store.delete(&n)).await;
+    match state.close_room(&name, CLOSE_DELETED, "This game was closed by an admin.").await {
+        Some(conns) => {
+            eprintln!("admin deleted room {name} ({conns} connections)");
+            Json(json!({ "ok": true, "deleted": name })).into_response()
+        }
+        None => error(StatusCode::NOT_FOUND, "No such room."),
     }
-    let mut r = room.lock().unwrap();
-    r.closed = true;
-    let notice = json!({ "t": "error", "message": "This game was closed by an admin." }).to_string();
-    for c in r.conns.values() {
-        let _ = c.tx.try_send(Message::Text(notice.clone().into()));
-        let _ = c.tx.try_send(Message::Close(Some(CloseFrame { code: CLOSE_DELETED, reason: "room deleted".into() })));
-    }
-    eprintln!("admin deleted room {name} ({} connections)", r.conns.len());
-    Json(json!({ "ok": true, "deleted": name })).into_response()
 }
 
 #[cfg(test)]
