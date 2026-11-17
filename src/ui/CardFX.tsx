@@ -1,4 +1,5 @@
 "use client";
+import { seat } from "./seats.ts";
 // Card-play effects, built from bits.
 //
 // Every move in the round log becomes a card that
@@ -93,7 +94,7 @@ export function CardFX({ round }: { round: PublicRound | null }) {
 function Face({ fx }: { fx: Fx }) {
   return (
     <div className="fx-face">
-      <span className="fx-role">{ROLE_NAMES[fx.role]}</span>
+      <span className="fx-role">{seat(fx.role)}</span>
       <span className="fx-text">{fx.text.length > 120 ? `${fx.text.slice(0, 118)}…` : fx.text}</span>
       {fx.call ? (
         <span className="fx-call">

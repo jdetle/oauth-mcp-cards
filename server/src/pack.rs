@@ -65,7 +65,15 @@ impl Pack {
         SeatNames { client: n(Role::Client), application: n(Role::Application), idp: n(Role::Idp), mcp: n(Role::Mcp) }
     }
     pub fn public(&self) -> PublicGame {
-        PublicGame { id: self.info.id.clone(), title: self.info.title.clone(), accent: self.info.accent.clone(), seats: self.seat_names(), scripted: self.scripted() }
+        let b = |r: Role| self.info.seats.get(&r).map(|s| s.brief.clone()).unwrap_or_default();
+        PublicGame {
+            id: self.info.id.clone(),
+            title: self.info.title.clone(),
+            accent: self.info.accent.clone(),
+            seats: self.seat_names(),
+            briefs: SeatNames { client: b(Role::Client), application: b(Role::Application), idp: b(Role::Idp), mcp: b(Role::Mcp) },
+            scripted: self.scripted(),
+        }
     }
 }
 
@@ -151,9 +159,20 @@ pub struct IntrusionSpec {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Temptation {
+    pub label: String,
+    /// shown when someone plays it
+    pub why: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Step {
     pub id: String,
     pub actor: Role,
+    /// optional cards that look helpful and aren't: playing one breaks the chain
+    #[serde(default)]
+    pub temptations: Vec<Temptation>,
     /// what arrived for the actor (none for a step that starts something)
     #[serde(default)]
     pub slip: Option<SlipSpec>,
@@ -228,10 +247,15 @@ pub fn parse_round(text: &str, file: &str) -> Result<Scenario, String> {
         if st.cards.iter().filter(|c| c.verdict == CardVerdict::Correct).count() != 1 {
             return at("needs exactly one correct card".into());
         }
-        let mut labels: Vec<&str> = st.cards.iter().map(|c| c.label.as_str()).collect();
+        for t in &st.temptations {
+            if t.why.trim().len() < 20 {
+                return at(format!("temptation \"{}\" doesn't say why it is a bad idea", t.label));
+            }
+        }
+        let mut labels: Vec<&str> = st.cards.iter().map(|c| c.label.as_str()).chain(st.temptations.iter().map(|t| t.label.as_str())).collect();
         labels.sort();
         labels.dedup();
-        if labels.len() != st.cards.len() {
+        if labels.len() != st.cards.len() + st.temptations.len() {
             return at("two cards share a label".into());
         }
         for c in &st.cards {

@@ -54,6 +54,12 @@
           "why": "It is a real request from the on-call engineer. Check who is asking, then act."
         }
       ],
+      "temptations": [
+        {
+          "label": "Restart it yourself with the admin credential: quicker than delegating",
+          "why": "The admin credential covers every environment. Using it directly for a one-service restart is the widest possible way to do a narrow job."
+        }
+      ],
       "slip": {
         "from": "client",
         "title": "On-call request",
@@ -142,6 +148,12 @@
           "verdict": "wrong",
           "next": "end",
           "why": "It targets staging, as asked. Check, then run it."
+        }
+      ],
+      "temptations": [
+        {
+          "label": "Restart the dependent services too, in case they're stale",
+          "why": "One service was asked for. Each extra restart is an outage nobody requested."
         }
       ],
       "slip": {

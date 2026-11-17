@@ -1,17 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ROLES, ROLE_NAMES } from "../game/types.ts";
+import { ROLES, ROLE_NAMES, type Role } from "../game/types.ts";
 import { createRoom, joinRoom, rememberName, type SeatChoice } from "./api.ts";
 import { Turnstile } from "./Turnstile.tsx";
 
-export function SeatSelect({ value, onChange, id }: { value: SeatChoice; onChange: (v: SeatChoice) => void; id: string }) {
+export function SeatSelect({ value, onChange, id, seats }: { value: SeatChoice; onChange: (v: SeatChoice) => void; id: string; seats?: Record<Role, string> }) {
   return (
     <label htmlFor={id}>
       Seat
       <select id={id} value={value} onChange={(e) => onChange(e.target.value as SeatChoice)}>
         <option value="auto">Any open seat</option>
         {ROLES.map((r) => (
-          <option key={r} value={r}>{ROLE_NAMES[r]}</option>
+          <option key={r} value={r}>{seats?.[r] ?? ROLE_NAMES[r]}</option>
         ))}
         <option value="spectate">Just watch (spectator)</option>
       </select>
@@ -19,8 +19,8 @@ export function SeatSelect({ value, onChange, id }: { value: SeatChoice; onChang
   );
 }
 
-/** Join an existing room (room given) or create a new one (room omitted). */
-export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoined: (room: string) => void; autoFocus?: boolean }) {
+/** Join an existing room (room given) or create a new one for `game` (room omitted). `seats` names the four seats of that game. */
+export function JoinForm({ room, game = "oauth-mcp", seats, onJoined, autoFocus }: { room?: string; game?: string; seats?: Record<Role, string>; onJoined: (room: string) => void; autoFocus?: boolean }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [seat, setSeat] = useState<SeatChoice>("auto");
@@ -29,7 +29,7 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
   const [token, setToken] = useState<string | null>(null);
   const [botCheck, setBotCheck] = useState(false);
   const [resetKey, setResetKey] = useState(0);
-  const idp = room ? `join-${room}` : "create";
+  const idp = room ? `join-${room}` : `create-${game}`;
 
   useEffect(() => setName(rememberName()), []);
 
@@ -40,7 +40,7 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
     if (password.length < 4) return setError("Password must be at least 4 characters.");
     setBusy(true);
     rememberName(name.trim());
-    const res = room ? await joinRoom(room, password, name.trim(), seat, token) : await createRoom(password, name.trim(), seat, token);
+    const res = room ? await joinRoom(room, password, name.trim(), seat, token) : await createRoom(game, password, name.trim(), seat, token);
     setBusy(false);
     if (!res.ok) {
       setResetKey((k) => k + 1); // bot-check tokens are single-use
@@ -60,7 +60,7 @@ export function JoinForm({ room, onJoined, autoFocus }: { room?: string; onJoine
           {room ? "Room password" : "Set a room password"}
           <input id={`${idp}-pw`} type="password" value={password} autoComplete={room ? "current-password" : "new-password"} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        <SeatSelect id={`${idp}-seat`} value={seat} onChange={setSeat} />
+        <SeatSelect id={`${idp}-seat`} value={seat} onChange={setSeat} seats={seats} />
       </div>
       <Turnstile onToken={setToken} onRequired={setBotCheck} resetKey={resetKey} />
       {error ? <div className="error" role="alert">{error}</div> : null}

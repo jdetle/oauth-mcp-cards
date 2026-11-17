@@ -66,6 +66,14 @@ A service has to respond to a request to be functional at all. It only *ought* t
 
 Warm-ups stay fully visible, so audience, scope and issuer are learned before they are hidden.
 
+### Not everything optional is a good idea
+
+Mixed in with the optional checks are **temptations**: optional cards that look helpful and aren't ("Log the full token so you can debug later", "Trust the caller's X-User header instead", "Run it twice in case the first one fails"). Nothing on the card marks it. Playing one breaks the chain on the spot, and the result says why. So "play every optional card" is not a strategy: you have to know which ones are checks.
+
+- OAuth game: after the warm-ups the MCP Server is dealt two (of four) and the Application one (of two), from `TEMPTATIONS` in `server/src/engine.rs`.
+- Scripted games: each step can list its own `temptations` (label and why) in the round file.
+- Sims never play them.
+
 ## Ready check between rounds
 
 When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If a minute passes with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.

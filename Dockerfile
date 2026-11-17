@@ -7,6 +7,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY app ./app
 COPY src ./src
+COPY public ./public
 COPY next.config.ts tsconfig.json ./
 # e.g. /mcp-oauth to serve the site under that prefix (jdetle.com/mcp-oauth)
 ARG BASE_PATH=

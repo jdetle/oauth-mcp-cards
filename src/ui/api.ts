@@ -1,6 +1,6 @@
 // Browser-side helpers. In production the Rust server serves this page, so the API is same-origin.
 // In development (`next dev` on :3000) set NEXT_PUBLIC_API_BASE=http://localhost:8080.
-import type { Role } from "../game/types.ts";
+import type { GameInfo, Role } from "../game/types.ts";
 import { BASE } from "./paths.ts";
 import { track } from "./telemetry.ts";
 import { announceWaking } from "./poll.ts";
@@ -68,18 +68,37 @@ export type SeatChoice = Role | "auto" | "spectate";
 
 const seat = (role: SeatChoice) => (role === "auto" ? undefined : role);
 
-export async function createRoom(password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null) {
-  return post("/api/rooms", { password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined });
+export async function createRoom(game: string, password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null) {
+  return post("/api/rooms", { game, password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined });
+}
+
+/** Every game in the series (static per release; cached by the server for five minutes). */
+export async function listGames(): Promise<GameInfo[] | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/games`, { credentials: "include" });
+    if (!res.ok) return null;
+    return ((await res.json()) as { games: GameInfo[] }).games;
+  } catch {
+    return null;
+  }
+}
+
+export interface RoomRow {
+  name: string;
+  seated: number;
+  game: string;
+  gameTitle: string;
+  accent: string;
 }
 
 export async function joinRoom(room: string, password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null) {
   return post(`/api/rooms/${encodeURIComponent(room)}/join`, { password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined });
 }
 
-export async function listRooms(): Promise<{ name: string; seated: number }[] | null> {
+export async function listRooms(): Promise<RoomRow[] | null> {
   try {
     const res = await fetch(`${API_BASE}/api/rooms`, { cache: "no-store", credentials: "include" });
-    const data = (await res.json()) as { rooms?: { name: string; seated: number }[]; asleep?: boolean };
+    const data = (await res.json()) as { rooms?: RoomRow[]; asleep?: boolean };
     serverAsleep = !!data.asleep;
     return data.asleep ? [] : (data.rooms ?? null);
   } catch {

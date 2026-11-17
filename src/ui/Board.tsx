@@ -1,4 +1,5 @@
 "use client";
+import { seat } from "./seats.ts";
 // The game board: four terminals on a circuit, light packets on the traces,
 // scramble-suit identities and a trap door where the chain breaks.
 import { useEffect, useMemo, useState } from "react";
@@ -207,7 +208,7 @@ export function Board({
             aria-current={active ? "step" : undefined}
           >
             {broken === role ? <Crumbs id={`${r?.index}-${role}`} /> : null}
-            <div className="t-role">{ROLE_NAMES[role]}</div>
+            <div className="t-role">{seat(role)}</div>
             <div className="t-who">
               {p ? (
                 <>
@@ -229,7 +230,7 @@ export function Board({
       <div className="core">
         {r && r.status === "playing" ? (
           <div className={`turn-banner${myTurn ? " mine" : ""}`} role="status">
-            {myTurn ? "▶ Your move" : `${ROLE_NAMES[r.activeRole!]} is deciding`}
+            {myTurn ? "▶ Your move" : `${seat(r.activeRole!)} is deciding`}
           </div>
         ) : null}
         {r && r.status === "identify" ? <div className="turn-banner" role="status">Pick the flow in secret · {r.identifySubmitted.length}/4 locked</div> : null}
@@ -245,7 +246,7 @@ export function Board({
         <ol className="chain" aria-label="Chain so far">
           {r.slips.map((s, i) => (
             <li key={i} className={`c-${s.from}`}>
-              <b>{String(i + 1).padStart(2, "0")}</b> {ROLE_NAMES[s.from]} → {ROLE_NAMES[s.to]} · {s.label}
+              <b>{String(i + 1).padStart(2, "0")}</b> {seat(s.from)} → {seat(s.to)} · {s.label}
             </li>
           ))}
         </ol>
@@ -254,7 +255,7 @@ export function Board({
     {r?.inFlight ? (
       <section className={`wire c-${r.inFlight.from}`} aria-label="On the wire">
         <h3>
-          On the wire <span>{ROLE_NAMES[r.inFlight.from]} → {ROLE_NAMES[r.inFlight.to]}</span>
+          On the wire <span>{seat(r.inFlight.from)} → {seat(r.inFlight.to)}</span>
         </h3>
         <InFlightSlip item={r.inFlight} sealed={r.sealed} />
       </section>

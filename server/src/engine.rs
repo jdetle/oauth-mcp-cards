@@ -10,6 +10,17 @@ use std::sync::Arc;
 #[path = "script.rs"]
 mod script;
 
+/// The OAuth game's temptations: (key, who is offered it, label, why it is a mistake).
+/// Receivers are dealt some of these beside their optional checks, after the warm-ups.
+pub const TEMPTATIONS: &[(&str, Role, &str, &str)] = &[
+    ("log_token", Role::Mcp, "Log the full token so you can debug later", "A token in a log is a credential anyone with log access can replay. Log who called and what for, never the token itself."),
+    ("trust_header", Role::Mcp, "Trust the caller's X-User header instead", "A header the caller writes is the caller's word. The token is the only thing here that someone you trust signed."),
+    ("cache_token", Role::Mcp, "Keep this token to reuse for the next caller", "A token speaks for one caller on one request. Reusing it for someone else hands them that caller's access."),
+    ("skip_ok", Role::Mcp, "Wave it through: it came from inside the network", "Where a call comes from proves nothing about who is behind it. Inside the network is where a stolen token gets used."),
+    ("app_log", Role::Application, "Log the user's token so support can replay the request", "A token in a log is a credential anyone with log access can replay. Support needs the request id, not the user's token."),
+    ("app_keep", Role::Application, "Keep the user's token to act for them later", "Holding a user's token to act when they're gone is access they never granted. Acting without the user needs its own grant, or the service's own identity."),
+];
+
 pub const SIGV4_KEY_ID: &str = "ASIA-TASK-ROLE";
 pub const SIGV4_SERVICE: &str = "execute-api";
 pub const SIGV4_REGION: &str = "us-east-1";
@@ -329,7 +340,7 @@ impl Game {
     pub fn public_game(&self) -> PublicGame {
         match &self.pack {
             Some(p) => p.public(),
-            None => PublicGame { id: self.game_id.clone(), title: "OAuth for MCP".into(), accent: "#29f0ff".into(), seats: SeatNames::default(), scripted: false },
+            None => PublicGame { id: self.game_id.clone(), title: "OAuth for MCP".into(), accent: "#29f0ff".into(), seats: SeatNames::default(), briefs: SeatNames { client: String::new(), application: String::new(), idp: String::new(), mcp: String::new() }, scripted: false },
         }
     }
 
@@ -521,7 +532,7 @@ impl Game {
                 }
             }
         } else {
-            let free: Vec<&&Card> = playable.iter().filter(|c| c.card_type.is_free()).collect();
+            let free: Vec<&&Card> = playable.iter().filter(|c| c.card_type.is_free() && c.card_type != CardType::Temptation).collect();
             if !free.is_empty() && rng.gen_bool(0.35) {
                 return Some(ClientMessage::Play { card_id: free[rng.gen_range(0..free.len())].id.clone() });
             }
@@ -688,7 +699,29 @@ impl Game {
                 list.push(Held { key, token });
             }
             held.insert(role, list);
-            hands.insert(role, s.deal(role, &mut || id_fn()));
+            let mut hand = s.deal(role, &mut || id_fn());
+            // After the warm-ups, a seat that holds optional checks is also offered things that
+            // only look helpful. Mixed in with the checks, so nothing about position gives them away.
+            if s.script.is_none() && s.phase != Phase::Warmup && hand.iter().any(|c| c.card_type.check_kind().is_some()) {
+                use rand::seq::SliceRandom;
+                let mut rng = rand::thread_rng();
+                let mut offers: Vec<&(&str, Role, &str, &str)> = TEMPTATIONS.iter().filter(|t| t.1 == role).collect();
+                offers.shuffle(&mut rng);
+                for t in offers.into_iter().take(if role == Role::Mcp { 2 } else { 1 }) {
+                    hand.push(Card {
+                        id: id_fn(),
+                        card_type: CardType::Temptation,
+                        label: t.2.to_string(),
+                        category: "Optional".into(),
+                        params: CardParams { attach: Some(format!("{}{}", script::TEMPT, t.0)), ..Default::default() },
+                    });
+                }
+                let (mut must, mut optional): (Vec<Card>, Vec<Card>) = hand.into_iter().partition(|c| !c.card_type.is_free());
+                optional.shuffle(&mut rng);
+                must.append(&mut optional);
+                hand = must;
+            }
+            hands.insert(role, hand);
         }
         let beats = s.beats();
         let mut r = Round {
@@ -1034,6 +1067,10 @@ impl Game {
         if matches!(card.card_type, CardType::Script | CardType::ScriptCheck) {
             return Self::script_playable(r, role, card);
         }
+        if card.card_type == CardType::Temptation {
+            // on offer whenever a real decision is: when something has arrived for you
+            return r.status == RoundStatus::Playing && r.active_role == Some(role) && (r.in_flight.as_ref().is_some_and(|f| f.to() == role) || r.in_flight.is_none());
+        }
         if r.status != RoundStatus::Playing || r.active_role != Some(role) {
             return false;
         }
@@ -1061,7 +1098,47 @@ impl Game {
         }
     }
 
+    /// Why this optional card is a bad idea (it is one of the temptations).
+    fn temptation_why(&self, r: &Round, card: &Card) -> Option<String> {
+        let key = card.params.attach.as_deref()?.strip_prefix(script::TEMPT)?;
+        match self.script_of(r) {
+            Some(sc) => sc.steps.get(r.beat)?.temptations.get(key.parse::<usize>().ok()?).map(|t| t.why.clone()),
+            None => TEMPTATIONS.iter().find(|t| t.0 == key).map(|t| t.3.to_string()),
+        }
+    }
+
+    /// An optional card that looked helpful and wasn't. Nothing forced it; the chain breaks here.
+    fn play_temptation(&mut self, player_id: &str, role: Role, card: &Card, why: String) -> Result<(), GameError> {
+        let name = self.player(player_id).map(|p| p.name.clone()).unwrap_or_default();
+        let r = self.round.as_mut().unwrap();
+        r.moves.push(Move { player_id: player_id.to_string(), role, label: card.label.clone(), correct: Some(false), reason: None, explanation: Some(why.clone()), trap: true });
+        r.seq += 1;
+        let seq = r.seq;
+        r.log.push(LogEntry {
+            seq,
+            at: now_ms(),
+            role: Some(role),
+            player_name: Some(name),
+            text: card.label.clone(),
+            verdict: Verdict::Incorrect,
+            detail: Some(why),
+            call: Some(Call { expected: chip("Leave it alone", Tone::Stop), played: chip(&card.label, Tone::Send), matched: false }),
+            diligence: None,
+        });
+        self.finish();
+        Ok(())
+    }
+
     pub fn play(&mut self, player_id: &str, card_id: &str) -> Result<(), GameError> {
+        // a temptation is the same in every game: optional, playable on your turn, and a mistake
+        if let Some(r) = self.round.as_ref().filter(|r| r.status == RoundStatus::Playing) {
+            if let Some(role) = r.seats.role_of(player_id).filter(|role| r.active_role == Some(*role)) {
+                if let Some(card) = r.hands.get(&role).and_then(|h| h.iter().find(|c| c.id == card_id && c.card_type == CardType::Temptation)).cloned() {
+                    let why = self.temptation_why(r, &card).ok_or_else(|| GameError("Unknown card.".into()))?;
+                    return self.play_temptation(player_id, role, &card, why);
+                }
+            }
+        }
         if self.is_scripted() {
             return self.script_play(player_id, card_id);
         }

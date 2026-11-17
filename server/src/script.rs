@@ -14,6 +14,7 @@ use crate::pack::{CardVerdict, Script, Step};
 
 const CARD: &str = "c:";
 const CHECK: &str = "k:";
+pub(super) const TEMPT: &str = "t:";
 
 fn fields_mut(r: &mut Round) -> Option<&mut Vec<PacketField>> {
     match r.in_flight.as_mut() {
@@ -122,7 +123,7 @@ impl Game {
                     id: self.new_id(),
                     card_type: CardType::ScriptCheck,
                     label: f.check.clone().unwrap_or_else(|| format!("Check the {}", f.label)),
-                    category: "optional check".into(),
+                    category: "optional".into(),
                     params: CardParams { attach: Some(format!("{CHECK}{}", f.label)), ..Default::default() },
                 });
             }
@@ -131,6 +132,18 @@ impl Game {
         if let (Some(item), Some(slip)) = (r.in_flight.clone(), step.slip.as_ref()) {
             r.slips.push(Slip { from: slip.from, to: step.actor, label: slip.title.clone(), item });
         }
+        for (i, t) in step.temptations.iter().enumerate() {
+            hand.push(Card {
+                id: self.new_id(),
+                card_type: CardType::Temptation,
+                label: t.label.clone(),
+                category: "optional".into(),
+                params: CardParams { attach: Some(format!("{TEMPT}{i}")), ..Default::default() },
+            });
+        }
+        // optional cards (checks and temptations) are mixed, so position says nothing
+        let split = hand.iter().position(|c| c.card_type != CardType::Script).unwrap_or(hand.len());
+        hand[split..].shuffle(&mut rand::thread_rng());
         r.hands.insert(step.actor, hand);
     }
 
@@ -140,7 +153,7 @@ impl Game {
         }
         match (card.card_type, card.params.attach.as_deref().and_then(|a| a.strip_prefix(CHECK))) {
             (CardType::ScriptCheck, Some(label)) => fields(r).iter().any(|f| f.label == label && f.state == FieldState::Sealed),
-            (CardType::Script, _) => true,
+            (CardType::Script | CardType::Temptation, _) => true,
             _ => false,
         }
     }

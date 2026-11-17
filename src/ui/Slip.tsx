@@ -1,4 +1,5 @@
 "use client";
+import { seat } from "./seats.ts";
 import { ROLE_NAMES, type CheckKind, type Credential, type InFlight, type Role, type Sealed, type Token } from "../game/types.ts";
 import { Seal, useKeys } from "./Seal.tsx";
 
@@ -143,8 +144,10 @@ function CredentialSlip({ c, sealed }: { c: Credential; sealed?: Sealed | null }
 export function InFlightSlip({ item, sealed }: { item: InFlight; sealed?: Sealed | null }) {
   const now = Date.now();
   const keys = useKeys();
-  const head = `${ROLE_NAMES[item.from as Role]} → ${ROLE_NAMES[item.to as Role]}`;
+  const head = `${seat(item.from as Role)} → ${seat(item.to as Role)}`;
   switch (item.kind) {
+    case "packet":
+      return <PacketSlip item={item} />;
     case "request":
       return (
         <div className="stack" style={{ gap: 6 }}>
@@ -196,4 +199,44 @@ export function InFlightSlip({ item, sealed }: { item: InFlight; sealed?: Sealed
         </div>
       );
   }
+}
+
+/** Scripted games: a slip of labelled fields. A sealed value isn't on this page at all until
+ *  its receiver checks it; then everyone sees it, marked fine or wrong. */
+export function PacketSlip({ item }: { item: Extract<InFlight, { kind: "packet" }> }) {
+  const sealed = item.fields.filter((f) => f.state === "sealed");
+  const checkable = item.fields.some((f) => f.state !== "open");
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <div className={`slip packet${sealed.length ? " is-sealed" : ""}`} role="group" aria-label={`${item.title}${sealed.length ? `, ${sealed.length} sealed field${sealed.length === 1 ? "" : "s"}` : ""}`}>
+        <div className="slip-title">
+          <span>{item.title}{sealed.length ? " · sealed" : ""}</span>
+          <Seal of={`${item.title}:${item.fields.map((f) => f.label).join("|")}`} size={30} label="This slip's seal" />
+        </div>
+        <Fields
+          rows={item.fields.map((f) => [
+            f.label,
+            f.state === "sealed" ? (
+              <span className="field-sealed">▒▒▒▒▒▒ unchecked</span>
+            ) : f.state === "open" ? (
+              f.value
+            ) : (
+              <span className={f.state === "ok" ? "field-ok" : "field-bad"} title={f.detail}>
+                {f.value} {f.state === "ok" ? "✓" : "✗"}
+              </span>
+            ),
+          ])}
+        />
+        {item.fields.filter((f) => f.state === "bad" && f.detail).map((f) => (
+          <p key={f.label} className="slip-note field-bad">{f.detail}</p>
+        ))}
+        {sealed.length ? (
+          <p className="slip-note">You only know what you check. Unchecked: {sealed.map((f) => f.label).join(", ")}. Nothing forces a check; it will work either way.</p>
+        ) : checkable && !item.fields.some((f) => f.state === "bad") ? (
+          <p className="slip-note">Every sealed field has been checked.</p>
+        ) : null}
+        {item.note ? <p className="slip-note">{item.note}</p> : null}
+      </div>
+    </div>
+  );
 }

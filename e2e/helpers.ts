@@ -3,8 +3,13 @@ import { expect, type Page } from "@playwright/test";
 export const PASSWORD = "table-pw";
 
 /** Create a room through the lobby UI and land on the table. Returns the room name. */
-export async function createRoom(page: Page, name = "Tester", seat: string = "Client"): Promise<string> {
+export async function createRoom(page: Page, name = "Tester", seat: string = "Client", game?: string): Promise<string> {
   await page.goto("./");
+  if (game) {
+    // another game in the series: pick it first (its seats have their own names)
+    await page.getByRole("radio", { name: new RegExp(game) }).click();
+    await expect(page.locator("#create-h")).toContainText(game);
+  }
   const form = page.getByRole("form", { name: "Create a room" });
   await form.getByLabel("Display name").fill(name);
   await form.getByLabel("Set a room password").fill(PASSWORD);

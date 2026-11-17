@@ -1,4 +1,5 @@
 "use client";
+import { seat } from "./seats.ts";
 // The game-long record: every move in every round, timestamped, as a chat-style feed
 // with a tick strip (one tick per move, coloured by outcome) along the top.
 import { href } from "./paths.ts";
@@ -112,7 +113,7 @@ export function Timeline({ room, round, compact = false }: { room: string; round
           <i
             key={`${m.round}-${m.seq}`}
             className={`${m.call ? `t-${m.call.played.tone}${m.call.matched ? "" : " miss"}` : "t-none"}${i > 0 && arr[i - 1]!.round !== m.round ? " gap" : ""}`}
-            title={`${clock(m.at)} · ${ROLE_NAMES[m.role!]}${m.playerName ? ` (${m.playerName})` : ""}: ${m.text}${m.call ? ` [expected ${m.call.expected.label}: ${m.call.matched ? "match" : "mismatch"}]` : ""}`}
+            title={`${clock(m.at)} · ${seat(m.role!)}${m.playerName ? ` (${m.playerName})` : ""}: ${m.text}${m.call ? ` [expected ${m.call.expected.label}: ${m.call.matched ? "match" : "mismatch"}]` : ""}`}
           />
         ))}
       </div>
@@ -141,7 +142,7 @@ export function Timeline({ room, round, compact = false }: { room: string; round
                 l.role ? (
                   <li key={l.seq} className={`tl-msg r-${l.role}${l.call && !l.call.matched ? " miss" : ""}`}>
                     <div className="tl-meta">
-                      <b>{ROLE_NAMES[l.role]}</b>
+                      <b>{seat(l.role)}</b>
                       {l.playerName ? <span>{l.playerName}</span> : null}
                       <time dateTime={iso(l.at)}>{clock(l.at)}</time>
                     </div>

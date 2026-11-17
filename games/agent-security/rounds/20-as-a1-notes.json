@@ -96,6 +96,12 @@
           "why": "The draft is what the user asked for. Check the recipients, then approve it."
         }
       ],
+      "temptations": [
+        {
+          "label": "Skim the body and approve: the sub-agent already checked it",
+          "why": "The sub-agent reads untrusted files all day. Its draft is exactly the thing that needs a second reader."
+        }
+      ],
       "slip": {
         "from": "idp",
         "title": "Draft for approval",
@@ -144,6 +150,12 @@
           "verdict": "wrong",
           "next": "end",
           "why": "Sending this email is the task, to a recipient the user named. Blocking it helps nobody."
+        }
+      ],
+      "temptations": [
+        {
+          "label": "Add the whole sales team on CC to keep them in the loop",
+          "why": "The user named one recipient. Adding more is the assistant deciding who should see a customer's notes."
         }
       ],
       "slip": {

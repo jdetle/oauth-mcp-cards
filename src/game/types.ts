@@ -129,7 +129,39 @@ export type InFlight =
     }
   | { kind: "assertion"; from: Role; to: Role; assertion: Assertion; request: RequestSpec }
   | { kind: "call"; from: Role; to: Role; request: RequestSpec; credential: Credential | null; confirmedByIdp?: boolean }
-  | { kind: "introspect"; from: Role; to: Role; request: RequestSpec; credential: Credential | null };
+  | { kind: "introspect"; from: Role; to: Role; request: RequestSpec; credential: Credential | null }
+  /** scripted games: a titled slip of labelled fields; sealed values arrive only once checked */
+  | { kind: "packet"; from: Role; to: Role; title: string; note?: string; fields: PacketField[] };
+
+export interface PacketField {
+  label: string;
+  /** null while sealed */
+  value: string | null;
+  state: "open" | "sealed" | "ok" | "bad";
+  detail?: string;
+}
+
+/** Which game of the series a table is playing, and what its seats are called. */
+export interface PublicGame {
+  id: string;
+  title: string;
+  accent: string;
+  seats: Record<Role, string>;
+  briefs: Record<Role, string>;
+  scripted: boolean;
+}
+
+export interface GameInfo {
+  id: string;
+  title: string;
+  tagline: string;
+  accent: string;
+  scripted: boolean;
+  rounds: number;
+  seats: Record<Role, { name: string; brief: string }>;
+  teaches: string[];
+  glossary: { term: string; means: string }[];
+}
 
 export type CardType =
   | "request" // Client: send a request (optionally with a token slip)
@@ -154,9 +186,12 @@ export type CardType =
   | "validate_scope"
   | "validate_expiry"
   | "validate_issuer"
-  | "validate_subject";
+  | "validate_subject"
+  | "script" // scripted games: a card whose meaning lives in the game pack
+  | "script_check" // scripted games: an optional check that reveals one sealed field
+  | "temptation"; // optional, looks helpful, and breaks the chain: not everything on offer is a good idea
 
-export const FREE_CARDS: CardType[] = ["registered_key", "validate_audience", "validate_scope", "validate_expiry", "validate_issuer", "validate_subject"];
+export const FREE_CARDS: CardType[] = ["registered_key", "validate_audience", "validate_scope", "validate_expiry", "validate_issuer", "validate_subject", "script_check", "temptation"];
 
 /** One thing a receiver can verify about a token. */
 export type CheckKind = "audience" | "scope" | "expiry" | "issuer" | "subject";
@@ -166,8 +201,8 @@ export interface Diligence {
   /** verified: checked everything first. unverified: trusted blind and it was fine. breach: trusted something bad.
    *  caught: refused something bad a check exposed. hunch: refused something bad without having looked. */
   tag: "verified" | "unverified" | "breach" | "caught" | "hunch";
-  skipped: CheckKind[];
-  wouldCatch: CheckKind[];
+  skipped: string[];
+  wouldCatch: string[];
 }
 
 export interface DiligenceStats {
@@ -285,6 +320,9 @@ export interface RoundResult {
   traps: string[];
   /** revealed at the end: what an intruder swapped in transit, if anything */
   intrusion: string | null;
+  /** scripted games: everyone's answer to the round's question, and the right one */
+  picks?: { playerId: string; name: string; option: string; correct: boolean }[];
+  answer?: string | null;
 }
 
 export interface ReadyCheck {
@@ -322,9 +360,12 @@ export interface PublicRound {
   readyCheck: ReadyCheck | null;
   /** set while the token in flight is sealed (learning and assessment rounds) */
   sealed: Sealed | null;
+  /** scripted games: the question answered in secret before an assessment round */
+  question: { text: string; options: { id: string; label: string }[] } | null;
 }
 
 export interface PublicState {
+  game: PublicGame;
   room: string;
   /** public halves of the signing keys (hex); private keys never leave the server */
   keys: { application: string; gateway: string };
@@ -344,6 +385,8 @@ export interface PrivateView {
   hand: Card[];
   slips: Token[]; // token slips held privately
   myGuess: Flow | null;
+  /** scripted games: my answer to the round's question */
+  myPick: string | null;
   canPlay: string[]; // card ids playable right now
 }
 
@@ -357,6 +400,7 @@ export type ClientMessage =
   | { t: "identify"; flow: Flow }
   | { t: "tell" }
   | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal" | "addBots" | "removeBots"; round?: number }
+  | { t: "pick"; option: string } // scripted games: answer the round's question
   | { t: "end" } // host only: end the game now and close the room for everyone
   | { t: "ready"; ready: boolean }
   | { t: "ping" };

@@ -343,6 +343,9 @@ pub enum CardType {
     Script,
     /// an optional check in a scripted game: reveals one sealed field
     ScriptCheck,
+    /// an optional card that looks helpful and isn't: playing it breaks the chain.
+    /// Not everything on offer is a good idea.
+    Temptation,
 }
 
 /// One thing a receiver can verify about a token. None of these are needed for the
@@ -371,7 +374,7 @@ impl CheckKind {
 
 impl CardType {
     pub fn is_free(self) -> bool {
-        matches!(self, CardType::RegisteredKey | CardType::ScriptCheck) || self.check_kind().is_some()
+        matches!(self, CardType::RegisteredKey | CardType::ScriptCheck | CardType::Temptation) || self.check_kind().is_some()
     }
     /// The token check this card performs, if it is one.
     pub fn check_kind(self) -> Option<CheckKind> {
@@ -432,6 +435,7 @@ impl CardType {
             CardType::ValidateAudience | CardType::ValidateScope | CardType::ValidateExpiry | CardType::ValidateIssuer | CardType::ValidateSubject => "Validate",
             CardType::Script => "Play",
             CardType::ScriptCheck => "Check",
+            CardType::Temptation => "Optional",
         }
     }
 }
@@ -740,6 +744,8 @@ pub struct PublicGame {
     pub title: String,
     pub accent: String,
     pub seats: SeatNames,
+    /// one line per seat: what it is there to do
+    pub briefs: SeatNames,
     /// scripted games have no OAuth-specific side panels
     pub scripted: bool,
 }

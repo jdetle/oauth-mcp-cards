@@ -24,7 +24,7 @@ fn packs() -> crate::pack::Packs {
 
 fn new_game() -> T {
     let counter = Arc::new(AtomicU64::new(0));
-    let mut g = Game::new("test-room", scenarios()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+    let mut g = Game::for_pack("test-room", packs()["oauth-mcp"].clone()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
     let ids = ROLES.map(|r| g.add_player(r.aud(), Some(r), false).id);
     T { g, ids }
 }
@@ -1419,4 +1419,108 @@ fn pack_lint_rejects_rounds_a_player_could_get_stuck_on() {
     assert!(broken(&|v| { v["steps"][0]["slip"]["fields"][0].as_object_mut().unwrap().remove("check"); }).contains("needs \"check\""));
     assert!(broken(&|v| v["phase"] = "warmup".into()).contains("warm-ups have no intruder"));
     assert!(broken(&|v| v["extra"] = 1.into()).contains("unknown field"));
+}
+
+// ---- temptations: optional cards that only look helpful -------------------------------------
+
+#[test]
+fn every_scripted_temptation_breaks_the_chain_and_says_why() {
+    let mut seen = 0;
+    for pack in scripted_packs() {
+        for i in 0..pack.scenarios.len() {
+            let steps = pack.scenarios[i].script.as_ref().unwrap().steps.clone();
+            for (si, step) in steps.iter().enumerate() {
+                for tempt in &step.temptations {
+                    seen += 1;
+                    let mut t = table(&pack, i);
+                    while t.g.round.as_ref().unwrap().beat < si {
+                        let label = correct_label(&t.g);
+                        play(&mut t.g, &label);
+                    }
+                    let me = active(&t.g);
+                    let hand = t.g.private_view(&me).hand;
+                    let card = hand.iter().find(|c| c.label == tempt.label).unwrap();
+                    // nothing on the card says it is a trap, and the reason isn't sent with it
+                    assert_eq!(card.card_type, CardType::Temptation);
+                    assert!(card.card_type.is_free());
+                    assert!(!serde_json::to_string(&hand).unwrap().contains(&tempt.why));
+                    play(&mut t.g, &tempt.label);
+                    assert_eq!(done(&t.g), Some(false), "{} {}: \"{}\"", pack.info.id, step.id, tempt.label);
+                    let r = t.g.round.as_ref().unwrap();
+                    let res = r.result.clone().unwrap();
+                    assert_eq!(res.explanation, tempt.why);
+                    assert_eq!(res.traps.len(), 1);
+                    let call = r.log.iter().rev().find_map(|l| l.call.clone()).unwrap();
+                    assert!(!call.matched && call.expected.label == "Leave it alone");
+                }
+            }
+        }
+    }
+    assert!(seen >= 10, "only {seen} temptations across the scripted games");
+}
+
+#[test]
+fn oauth_receivers_are_offered_temptations_after_the_warmups() {
+    let mut t = new_game();
+    let host = t.ids[0].clone();
+    t.g.start(&host).unwrap();
+    // warm-ups: none
+    let all = |g: &Game| ROLES.iter().flat_map(|r| g.round.as_ref().unwrap().hands.get(r).cloned().unwrap_or_default()).filter(|c| c.card_type == CardType::Temptation).count();
+    assert_eq!(all(&t.g), 0);
+    let obo = index_of(&t.g, "learning-obo");
+    t.g.host_action(&host, HostAction::Goto, Some(obo)).unwrap();
+    let r = t.g.round.as_ref().unwrap();
+    let of = |role: Role| r.hands[&role].iter().filter(|c| c.card_type == CardType::Temptation).count();
+    assert_eq!((of(Role::Client), of(Role::Application), of(Role::Idp), of(Role::Mcp)), (0, 1, 0, 2));
+    // optional cards come after the moves, mixed among themselves
+    for role in [Role::Application, Role::Mcp] {
+        let hand = &r.hands[&role];
+        let first_free = hand.iter().position(|c| c.card_type.is_free()).unwrap();
+        assert!(hand[first_free..].iter().all(|c| c.card_type.is_free()));
+    }
+    // play up to the MCP Server, then take the bait
+    while t.g.round.as_ref().unwrap().active_role != Some(Role::Mcp) {
+        let (pid, card) = (active(&t.g), best_card(&t.g));
+        t.g.play(&pid, &card).unwrap();
+    }
+    let mcp = active(&t.g);
+    let view = t.g.private_view(&mcp);
+    let bait = view.hand.iter().find(|c| c.card_type == CardType::Temptation).unwrap().clone();
+    assert!(view.can_play.contains(&bait.id));
+    let why = crate::engine::TEMPTATIONS.iter().find(|x| x.2 == bait.label).unwrap().3;
+    t.g.play(&mcp, &bait.id).unwrap();
+    let res = t.g.round.as_ref().unwrap().result.clone().unwrap();
+    assert!(!res.success);
+    assert!(res.explanation.starts_with(why), "{}", res.explanation);
+    assert_eq!(res.failed_step.unwrap().role, Role::Mcp);
+    assert_eq!(res.traps.len(), 1);
+}
+
+#[test]
+fn sims_never_take_the_bait() {
+    // a full OAuth game played by perfect sims: every round holds, so no temptation was played
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut g = Game::for_pack("sims", packs()["oauth-mcp"].clone()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+    g.intruder_rate = 0.0;
+    let host = g.add_player("Host", Some(Role::Client), false).id;
+    g.add_sims(&host).unwrap();
+    g.start(&host).unwrap();
+    for i in 0..g.scenarios.len() {
+        if i > 0 {
+            g.host_action(&host, HostAction::Goto, Some(i as u32)).unwrap();
+        }
+        let mut guard = 0;
+        while g.round.as_ref().unwrap().status != RoundStatus::Done {
+            guard += 1;
+            assert!(guard < 80, "round {i} stuck");
+            let who = g.next_sim().unwrap_or_else(|| host.clone());
+            match g.sim_choice(&who, 1.0).unwrap_or_else(|| panic!("round {i}: no move for {who}")) {
+                ClientMessage::Play { card_id } => g.play(&who, &card_id).unwrap(),
+                ClientMessage::Identify { flow } => g.identify(&who, flow).unwrap(),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        let r = g.round.as_ref().unwrap();
+        assert!(r.moves.iter().all(|m| !m.trap), "round {i}: a sim played a trap");
+    }
 }

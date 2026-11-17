@@ -31,6 +31,12 @@
           "why": "Nothing was wrong with it. Refusing a legitimate request without looking is its own failure: check, then act."
         }
       ],
+      "temptations": [
+        {
+          "label": "Paste the whole conversation into the sub-agent's task for context",
+          "why": "The sub-agent needed one instruction. Handing it the whole conversation hands it everything else the user said, and everything a page said to the assistant."
+        }
+      ],
       "slip": {
         "from": "client",
         "title": "Incoming task",
@@ -77,6 +83,12 @@
           "why": "The task carried a £60 limit. A sub-agent that improves on its instructions is spending authority it was never given."
         }
       ],
+      "temptations": [
+        {
+          "label": "Ask the web for the cheapest fare and follow the first result's advice",
+          "why": "Advice on a web page is content. Letting it steer the booking is how a stranger's page ends up choosing what the user pays for."
+        }
+      ],
       "slip": {
         "from": "application",
         "title": "Delegated task",
@@ -117,6 +129,16 @@
           "verdict": "wrong",
           "next": "end",
           "why": "Nothing was wrong with it. Refusing a legitimate request without looking is its own failure: check, then act."
+        }
+      ],
+      "temptations": [
+        {
+          "label": "Run it twice in case the first one fails",
+          "why": "Two bookings is two tickets and two charges. Retrying an action that spends money needs a reason, not a habit."
+        },
+        {
+          "label": "Log the full call, card details included",
+          "why": "A payment detail in a log can be read by anyone with access to the logs. Record what was booked for whom, not the means of paying."
         }
       ],
       "slip": {

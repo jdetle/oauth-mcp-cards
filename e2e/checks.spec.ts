@@ -14,7 +14,9 @@ test("a sealed token shows only what you check; trusting blind works and is mark
   await expect(must.locator(".card.playable", { hasText: "Accept" })).toBeVisible({ timeout: 15_000 });
   await expect(must.locator(".hand-group-head")).toContainText("Have to do");
   await expect(ought.locator(".hand-group-head")).toContainText("Ought to do");
-  await expect(ought.locator(".card")).toHaveCount(5);
+  // five checks, and two optional cards that only look helpful
+  await expect(ought.locator(".card")).toHaveCount(7);
+  await expect(ought.locator(".card", { hasText: /^optional\s*\d?\s*Validate/ })).toHaveCount(5);
 
   // the token on the wire is sealed: every field is hidden
   const slip = page.locator(".wire .slip.is-sealed");

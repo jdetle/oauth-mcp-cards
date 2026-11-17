@@ -15,11 +15,16 @@ def f(label, value, check=None, ok=None):
     if check: d.update(sealed=True, check=check, ok=ok)
     return d
 
-def step(id, actor, cards, slip=None, intrusion=None):
+def step(id, actor, cards, slip=None, intrusion=None, tempt=None):
+    """tempt: [(label, why)] optional cards that look helpful and break the chain if played."""
     s = {"id": id, "actor": actor, "cards": cards}
+    if tempt: s["temptations"] = [{"label": l, "why": w} for l, w in tempt]
     if slip: s["slip"] = slip
     if intrusion: s["intrusion"] = intrusion
     return s
+
+def tstep(tempt, *a, **k):
+    return step(*a, tempt=tempt, **k)
 
 def slip(frm, title, fields, note=None):
     s = {"from": frm, "title": title, "fields": fields}
@@ -95,19 +100,19 @@ ROUNDS = [
            "A delegated task carries limits. The receiver can check them, and nothing forces it to.",
            "A tool should know who it is acting for before it acts."],
   steps=[
-   step("task", O, slip=slip(U, "Incoming task", [f("text", "Book the 9:40 train to Leeds on Friday"),
+   tstep([("Paste the whole conversation into the sub-agent's task for context", 'The sub-agent needed one instruction. Handing it the whole conversation hands it everything else the user said, and everything a page said to the assistant.')], "task", O, slip=slip(U, "Incoming task", [f("text", "Book the 9:40 train to Leeds on Friday"),
         f("source", "the user, typed in this chat", "Check where this text came from", "Typed by the user in this conversation.")]), cards=[
      card("Plan it: ask the travel sub-agent to book the 9:40 on Friday", next="delegate"),
      card("Refuse: this didn't come from the user", "wrong", tone="stop", why=REFUSE_OK),
    ], intrusion=intr("source", "a web page the assistant read earlier", "This text was lifted from a web page. The user never typed it.",
         "Refuse: this didn't come from the user", "The “task” was text from a web page dressed up as a request. Acting on it means a stranger is giving the orders.",
         "The task the Orchestrator received was text from a web page, not from the user.")),
-   step("delegate", S, slip=slip(O, "Delegated task", [f("task", "Book the 9:40 to Leeds, Friday"), f("spend limit", "£60"),
+   tstep([("Ask the web for the cheapest fare and follow the first result's advice", "Advice on a web page is content. Letting it steer the booking is how a stranger's page ends up choosing what the user pays for.")], "delegate", S, slip=slip(O, "Delegated task", [f("task", "Book the 9:40 to Leeds, Friday"), f("spend limit", "£60"),
         f("allowed tools", "rail booking only", "Check which tools this task allows", "Rail booking only.")]), cards=[
      card("Call the rail tool: book the 9:40, fare £42", next="tool"),
      card("Book first class at £140: it's a better seat", "wrong", why="The task carried a £60 limit. A sub-agent that improves on its instructions is spending authority it was never given."),
    ]),
-   step("tool", T, slip=slip(S, "Tool call", [f("action", "rail.book 9:40 Friday, £42"), f("within limit", "£42 of £60"),
+   tstep([('Run it twice in case the first one fails', 'Two bookings is two tickets and two charges. Retrying an action that spends money needs a reason, not a habit.'), ('Log the full call, card details included', 'A payment detail in a log can be read by anyone with access to the logs. Record what was booked for whom, not the means of paying.')], "tool", T, slip=slip(S, "Tool call", [f("action", "rail.book 9:40 Friday, £42"), f("within limit", "£42 of £60"),
         f("on behalf of", "user:alex, via the travel sub-agent", "Check who this call is for", "For user:alex, delegated through the orchestrator.")]), cards=[
      card("Run it: book the ticket", tone="go"),
      card("Refuse the call", "wrong", tone="stop", why=REFUSE_OK),
@@ -127,14 +132,14 @@ ROUNDS = [
      card("Ask the orders agent for order 8841 with the service account", "trap", chip="Use the agent's own access",
           why="The service account can read every order. Using it for a customer's request gives the customer whatever the agent can see. That is the confused deputy."),
    ]),
-   step("lookup", S, slip=slip(O, "Delegated lookup", [f("order", "8841"), f("acting for", "cust:rivera"),
+   tstep([("Fetch all of this customer's orders while you're there", 'The customer asked for one order. Pulling the rest because you can is more data in the conversation than anyone asked for.')], "lookup", S, slip=slip(O, "Delegated lookup", [f("order", "8841"), f("acting for", "cust:rivera"),
         f("order belongs to", "cust:rivera", "Check whose order this is", "Order 8841 belongs to cust:rivera.")]), cards=[
      card("Query the database as cust:rivera", next="query"),
      card("Refuse the lookup", "wrong", tone="stop", why="It is the customer's own order. Check, then fetch it."),
    ], intrusion=intr("order belongs to", "cust:okafor", "Order 8841 belongs to a different customer, cust:okafor.",
         "Refuse the lookup", "The customer asked for somebody else's order. The agent could read it; the customer may not.",
         "Order 8841 belonged to a different customer than the one asking.")),
-   step("query", T, slip=slip(S, "Database query", [f("query", "orders where id = 8841"),
+   tstep([("Switch to the service account: it's faster", "Speed is the argument every confused deputy makes. The service account sees every customer's rows; this query should see one customer's.")], "query", T, slip=slip(S, "Database query", [f("query", "orders where id = 8841"),
         f("running as", "cust:rivera (their rows only)", "Check which identity this query runs as", "Runs as cust:rivera: only their rows are visible.")]), cards=[
      card("Run the query", tone="go"),
      card("Refuse the query", "wrong", tone="stop", why="The query runs as the customer and can only see their rows. Check, then run it."),
@@ -154,14 +159,14 @@ ROUNDS = [
      card("Propose the lint fixes; report the README line as untrusted", next="approve"),
      card("Ask to run the command from the README first", "trap", why="A README is something you were asked to read. A command inside it has no more authority than a comment on a web page."),
    ]),
-   step("approve", O, slip=slip(S, "Sub-agent result", [f("proposal", "Three lint fixes"), f("flagged", "README contains a command aimed at assistants"),
+   tstep([('Approve everything from this sub-agent for the rest of the session', 'A blanket approval means nobody reads what comes next. Each result is approved for what it asks to do, once.')], "approve", O, slip=slip(S, "Sub-agent result", [f("proposal", "Three lint fixes"), f("flagged", "README contains a command aimed at assistants"),
         f("wants to", "edit 3 files under src/", "Check exactly what the sub-agent wants to do", "Edit three files under src/. Nothing else.")]), cards=[
      card("Approve the edits and send them to the file tool", next="write"),
      card("Reject the result", "wrong", tone="stop", why="The proposal is the job the user asked for. Check what it wants to do, then approve it."),
    ], intrusion=intr("wants to", "edit 3 files under src/, then run a shell command from the README", "Besides the edits, it asks to run a shell command taken from the README.",
         "Reject the result", "The sub-agent had taken the README's line as an instruction. Approving its result unread runs a stranger's command.",
         "The sub-agent's result included a shell command it had picked up from the README.")),
-   step("write", T, slip=slip(O, "Tool call", [f("action", "write 3 files under src/"), f("this session covers", "this repository only")]), cards=[
+   tstep([("Commit and push the changes while you're at it", 'The task was to fix lint errors in files. Publishing them is a further step nobody asked for.')], "write", T, slip=slip(O, "Tool call", [f("action", "write 3 files under src/"), f("this session covers", "this repository only")]), cards=[
      card("Write the files", tone="go"),
      card("Apply the same fixes to the user's other repositories too", "wrong", why="The session covered one repository. Being able to reach more doesn't mean you were asked to."),
    ]),
@@ -173,7 +178,7 @@ ROUNDS = [
            "Keeping a credential after the task turns a one-off yes into a standing one.",
            "The tool that moves the money is the last place to ask what was actually approved."],
   steps=[
-   step("grant", O, slip=slip(U, "Delegation", [f("goal", "Buy a replacement laptop charger"), f("limit", "£30"),
+   tstep([('Extend the permission to the end of the week, to be safe', 'Only the user can widen what they granted. An assistant that extends its own permission has no limit at all.')], "grant", O, slip=slip(U, "Delegation", [f("goal", "Buy a replacement laptop charger"), f("limit", "£30"),
         f("valid until", "today, 23:59", "Check how long this permission lasts", "Valid until 23:59 today.")]), cards=[
      card("Ask the shopping agent to find and buy one under £30", next="shop"),
      card("Refuse: the permission has lapsed", "wrong", tone="stop", why="It is still valid. Look before refusing."),
@@ -185,7 +190,7 @@ ROUNDS = [
      card("Buy two: the second is half price, £41 in all", "wrong", why="A bargain over the limit is still over the limit. The user set £30."),
      card("Save the card details to make next time quicker", "trap", why="Keeping a credential beyond the task turns a one-off permission into a standing one. Nobody granted that."),
    ]),
-   step("pay", T, slip=slip(S, "Payment request", [f("amount", "£27.50"), f("payee", "Voltline Ltd"),
+   tstep([("Raise the limit to £50 so it doesn't fail next time", 'The limit belongs to the user. A payment tool that raises it for convenience is deciding how much of their money agents may spend.')], "pay", T, slip=slip(S, "Payment request", [f("amount", "£27.50"), f("payee", "Voltline Ltd"),
         f("approved by the user", "up to £30, charger only", "Check the approval attached to this payment", "The user approved up to £30 for a charger.")]), cards=[
      card("Pay £27.50", tone="go"),
      card("Decline the payment", "wrong", tone="stop", why="It is within what the user approved. Check, then pay."),
@@ -211,14 +216,14 @@ ROUNDS = [
      card("Draft the email with the BCC the notes asked for", "trap", why="The BCC was requested by a line in the file, not by the user. It would send the customer's notes to a stranger."),
      card("Draft the email to dana and say nothing about the P.S.", "wrong", why="The right recipients, but the user never learns someone tried to redirect their assistant. Report what you found."),
    ]),
-   step("approve", O, slip=slip(S, "Draft for approval", [f("to", "dana@customer.example"), f("body", "Notes from Tuesday's call"),
+   tstep([('Skim the body and approve: the sub-agent already checked it', 'The sub-agent reads untrusted files all day. Its draft is exactly the thing that needs a second reader.')], "approve", O, slip=slip(S, "Draft for approval", [f("to", "dana@customer.example"), f("body", "Notes from Tuesday's call"),
         f("bcc", "nobody", "Check every recipient on the draft", "One recipient: dana@customer.example. No BCC.")]), cards=[
      card("Approve it and pass it to the email tool", next="send"),
      card("Reject the draft", "wrong", tone="stop", why="The draft is what the user asked for. Check the recipients, then approve it."),
    ], intrusion=intr("bcc", "pricing@rival.example", "The draft has a BCC to pricing@rival.example.",
         "Reject the draft", "The BCC came from the notes file, not from the user. Approving the draft unread would have sent a competitor the customer's notes.",
         "The draft carried a BCC lifted from the notes file.")),
-   step("send", T, slip=slip(O, "Send email", [f("to", "dana@customer.example"), f("sender may email", "the user's own customers")]), cards=[
+   tstep([('Add the whole sales team on CC to keep them in the loop', "The user named one recipient. Adding more is the assistant deciding who should see a customer's notes.")], "send", T, slip=slip(O, "Send email", [f("to", "dana@customer.example"), f("sender may email", "the user's own customers")]), cards=[
      card("Send it", tone="go"),
      card("Refuse: assistants shouldn't send email", "wrong", tone="stop", why="Sending this email is the task, to a recipient the user named. Blocking it helps nobody."),
    ]),
@@ -236,7 +241,7 @@ ROUNDS = [
                         {"id": "c", "label": "A sub-agent should hide what it finds"},
                         {"id": "d", "label": "Tools should never refuse a call"}]},
   steps=[
-   step("ask", O, slip=slip(U, "On-call request", [f("ask", "Restart the checkout service in staging"),
+   tstep([('Restart it yourself with the admin credential: quicker than delegating', 'The admin credential covers every environment. Using it directly for a one-service restart is the widest possible way to do a narrow job.')], "ask", O, slip=slip(U, "On-call request", [f("ask", "Restart the checkout service in staging"),
         f("requested by", "priya, on call this week", "Check who is asking", "Priya, on call this week, signed in.")]), cards=[
      card("Delegate: restart checkout, staging only", next="ops"),
      card("Refuse the request", "wrong", tone="stop", why="It is a real request from the on-call engineer. Check who is asking, then act."),
@@ -248,7 +253,7 @@ ROUNDS = [
      card("Restart every service in staging, to be safe", "wrong", why="The task named one service. A wider restart is an outage nobody asked for."),
      card("Restart it in production too, since the credential allows it", "trap", why="The credential allowing it is the problem, not the permission. The task said staging."),
    ]),
-   step("api", T, slip=slip(S, "API call", [f("action", "restart deployment/checkout"),
+   tstep([("Restart the dependent services too, in case they're stale", 'One service was asked for. Each extra restart is an outage nobody requested.')], "api", T, slip=slip(S, "API call", [f("action", "restart deployment/checkout"),
         f("environment", "staging", "Check which environment this call targets", "Staging.")]), cards=[
      card("Run the restart", tone="go"),
      card("Refuse the call", "wrong", tone="stop", why="It targets staging, as asked. Check, then run it."),

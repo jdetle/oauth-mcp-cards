@@ -31,6 +31,12 @@
           "why": "It is still valid. Look before refusing."
         }
       ],
+      "temptations": [
+        {
+          "label": "Extend the permission to the end of the week, to be safe",
+          "why": "Only the user can widen what they granted. An assistant that extends its own permission has no limit at all."
+        }
+      ],
       "slip": {
         "from": "client",
         "title": "Delegation",
@@ -126,6 +132,12 @@
           "verdict": "wrong",
           "next": "end",
           "why": "It is within what the user approved. Check, then pay."
+        }
+      ],
+      "temptations": [
+        {
+          "label": "Raise the limit to £50 so it doesn't fail next time",
+          "why": "The limit belongs to the user. A payment tool that raises it for convenience is deciding how much of their money agents may spend."
         }
       ],
       "slip": {

@@ -10,6 +10,7 @@ import {
   type ClientMessage,
   type Flow,
   type PrivateView,
+  type PublicRound,
   type PublicState,
   type Role,
   type ServerMessage,
@@ -17,6 +18,7 @@ import {
 import { wsUrl } from "./api.ts";
 import { track } from "./telemetry.ts";
 import { announceWaking } from "./poll.ts";
+import { seat, setSeats } from "./seats.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
@@ -173,6 +175,7 @@ function Game(props: {
   leave: () => void;
 }) {
   const { state, you, send, conn, error } = props;
+  setSeats(state.game?.seats); // every component below reads this game's seat names
   const r = state.round;
   const byId = useMemo(() => new Map(state.players.map((p) => [p.id, p])), [state.players]);
   const myRoundRole = r ? (ROLES.find((role) => r.seats[role] === you.playerId) ?? null) : null;
@@ -245,9 +248,12 @@ function Game(props: {
             </section>
           )}
 
+          {/* the play area: on desktop it fills what's left of the window (board on top, slip and
+              hand side by side underneath); on phones it dissolves into the page's single column */}
+          <div className="play-area">
           <Board state={state} youId={you.playerId} myRoundRole={myRoundRole} myTurn={myTurn} onSit={(role) => send({ t: "sit", role })} scores={total} />
 
-          {r?.status === "identify" && myRoundRole ? <Identify you={you} choices={r.flowChoices} send={send} /> : null}
+          {r?.status === "identify" && myRoundRole ? (r.question ? <Question you={you} q={r.question} send={send} /> : <Identify you={you} choices={r.flowChoices} send={send} />) : null}
           {r?.status === "done" && r.result ? <Result state={state} you={you} send={send} /> : null}
 
           {r?.status === "done" ? <ReadyBar state={state} you={you} send={send} /> : null}
@@ -256,13 +262,13 @@ function Game(props: {
             <section className={`hand-panel r-${myRoundRole}${handOpen ? "" : " collapsed"}`} aria-label="Your hand">
               <div className="hand-head">
                 <button className="hand-toggle" onClick={() => setHandOpen(!handOpen)} aria-expanded={handOpen} aria-controls="hand-body">
-                  <strong>Your hand · {ROLE_NAMES[myRoundRole]}</strong> <span aria-hidden>{handOpen ? "▾" : "▴"}</span>
+                  <strong>Your hand · {seat(myRoundRole)}</strong> <span aria-hidden>{handOpen ? "▾" : "▴"}</span>
                 </button>
                 <span className="muted small">{myTurn ? <><span className="kbd-only">Your turn: press 1–9 or tap a highlighted card</span><span className="touch-only">Your turn: tap a highlighted card</span></> : "Wait for your turn"}</span>
               </div>
               {myTurn && r.inFlight && r.slips.length ? (
                 <p className="incoming">
-                  <b>Incoming</b> from {ROLE_NAMES[r.inFlight.from]}: {r.slips[r.slips.length - 1]!.label}
+                  <b>Incoming</b> from {seat(r.inFlight.from)}: {r.slips[r.slips.length - 1]!.label}
                 </p>
               ) : null}
               <div id="hand-body" className="hand-body">
@@ -279,7 +285,7 @@ function Game(props: {
                   <div key={group} className={`hand-group ${group}`}>
                     <div className="hand-group-head">
                       <b>{group === "must" ? "Have to do" : "Ought to do"}</b>
-                      <span>{group === "must" ? "Your move. The system only works if you make one." : "Checks. Free, and nothing forces you. Skip one and a wrong caller can get through."}</span>
+                      <span>{group === "must" ? "Your move. The system only works if you make one." : "Optional. Checks are free, and skipping one can let a wrong caller through. Not everything on offer here is a good idea."}</span>
                     </div>
                     <div className="hand">
                       {cards.map((c) => {
@@ -288,7 +294,7 @@ function Game(props: {
                         return (
                           <button key={c.id} className={`card cat-${c.category.toLowerCase().replace(/\s+/g, "-")}${can ? " playable" : ""}${group === "ought" ? " optional" : ""}`} disabled={!can} onClick={() => send({ t: "play", cardId: c.id })} aria-keyshortcuts={can && idx < 9 ? String(idx + 1) : undefined}>
                             <span className="cat">
-                              <span>{group === "ought" ? "optional check" : c.category}</span>
+                              <span>{group === "ought" ? "optional" : c.category}</span>
                               {can && idx < 9 ? <span className="key">{idx + 1}</span> : null}
                             </span>
                             <span className="label">{c.label}</span>
@@ -302,6 +308,7 @@ function Game(props: {
               </div>
             </section>
           ) : null}
+          </div>
         </div>
 
         <Side state={state} you={you} send={send} myRoundRole={myRoundRole} leave={props.leave} />
@@ -320,7 +327,7 @@ function Hud({ room, state, you, conn, role, follow }: { room: string; state: Pu
   return (
     <header className="hud">
       <a className="brand" href={href("/")} aria-label="Back to lobby">
-        OAUTH<i>//</i>MCP
+        {state.game?.scripted ? <span className="hud-game" style={{ color: state.game.accent }}>{state.game.title}</span> : <>OAUTH<i>//</i>MCP</>}
       </a>
       <div className="hud-room">
         <span>room</span>
@@ -342,7 +349,7 @@ function Hud({ room, state, you, conn, role, follow }: { room: string; state: Pu
         <span className={`conn ${conn === "open" ? "on" : "off"}`} role="status" aria-label={conn === "open" ? "Connected" : "Reconnecting"} title={conn === "open" ? "Connected" : "Reconnecting…"} />
         <ScrambleSuit id={you.playerId} size={20} />
         <b>{you.name}</b>
-        <span className="role-chip">{role ? ROLE_NAMES[role] : "Spectator"}</span>
+        <span className="role-chip">{role ? seat(role) : "Spectator"}</span>
         {follow}
       </div>
     </header>
@@ -404,13 +411,31 @@ function Identify({ you, choices, send }: { you: PrivateView; choices: Flow[]; s
   );
 }
 
+/** Scripted games: the question each player answers in secret before an assessment round. */
+function Question({ you, q, send }: { you: PrivateView; q: NonNullable<PublicRound["question"]>; send: (m: ClientMessage) => void }) {
+  return (
+    <section className="panel stack identify" aria-labelledby="id-h">
+      <h2 id="id-h">{q.text}</h2>
+      <p className="muted small" style={{ margin: 0 }}>Your answer is private until the round ends. You can change it until play starts.</p>
+      <div className="flow-choices" role="radiogroup">
+        {q.options.map((o) => (
+          <label key={o.id}>
+            <input type="radio" name="pick" checked={you.myPick === o.id} onChange={() => send({ t: "pick", option: o.id })} />
+            {o.label}
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Result({ state, you, send }: { state: PublicState; you: PrivateView; send: (m: ClientMessage) => void }) {
   const res = state.round!.result!;
   return (
     <section className={`panel result stack ${res.success ? "ok" : "bad"}`} aria-labelledby="res-h" aria-live="polite">
       <div className="result-head">
         {res.success ? <span className="seal" aria-hidden>◆</span> : <BitGlyph />}
-        <h2 id="res-h">{res.success ? "Chain unbroken" : `Chain broken at ${ROLE_NAMES[res.failedStep!.role]} (${res.failedStep!.playerName})`}</h2>
+        <h2 id="res-h">{res.success ? "Chain unbroken" : `Chain broken at ${seat(res.failedStep!.role)} (${res.failedStep!.playerName})`}</h2>
       </div>
       {res.failedStep ? <p style={{ margin: 0 }}><b>The move:</b> {res.failedStep.text}</p> : null}
       <div className="calls" aria-label="Expected versus played, move by move">
@@ -418,7 +443,7 @@ function Result({ state, you, send }: { state: PublicState; you: PrivateView; se
         <ol>
           {state.round!.log.filter((l) => l.call && l.role).map((l) => (
             <li key={l.seq}>
-              <span className={`calls-who r-${l.role}`}>{ROLE_NAMES[l.role!]}</span>
+              <span className={`calls-who r-${l.role}`}>{seat(l.role!)}</span>
               <CallPair call={l.call!} />
               {l.diligence ? <DiligenceTag d={l.diligence} /> : null}
             </li>
@@ -435,6 +460,10 @@ function Result({ state, you, send }: { state: PublicState; you: PrivateView; se
       ) : null}
       {res.guesses.length ? (
         <div className="small"><b>Guesses</b><ul>{res.guesses.map((g) => <li key={g.playerId}>{g.correct ? "✓" : "✗"} {g.name}: {FLOW_NAMES[g.flow]}</li>)}</ul></div>
+      ) : null}
+      {res.answer ? <p className="small" style={{ margin: 0 }}><b>The question:</b> {res.answer}</p> : null}
+      {res.picks?.length ? (
+        <div className="small"><b>Answers</b><ul>{res.picks.map((g) => <li key={g.playerId}>{g.correct ? "✓" : "✗"} {g.name}: {g.option}</li>)}</ul></div>
       ) : null}
       {res.traps.length ? <div className="small"><b>Traps played</b><ul>{res.traps.map((t) => <li key={t}>{t}</li>)}</ul></div> : null}
       <div className="small"><b>Points</b><ul>{res.awards.length ? res.awards.map((a, i) => <li key={i}>+{a.points} {a.name}: {a.why}</li>) : <li>None this round.</li>}</ul></div>
@@ -457,11 +486,22 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
     <aside className="side">
       {role ? (
         <section className="panel stack small" aria-labelledby="qr-h">
-          <h3 id="qr-h">Quick reference · {ROLE_NAMES[role]}</h3>
-          <div><b>You hold:</b> {QUICK_REF[role].hold}</div>
-          <div><b>You check:</b> {QUICK_REF[role].check}</div>
-          <div><b>Never:</b> {QUICK_REF[role].never}</div>
-          <div className="keyring" aria-label="Public keys on this table">
+          <h3 id="qr-h">Quick reference · {seat(role)}</h3>
+          {state.game?.scripted ? (
+            <>
+              <div><b>Your seat:</b> {state.game.briefs[role]}</div>
+              <div><b>Have to do:</b> make the call when a slip reaches you. The chain only moves if you do.</div>
+              <div><b>Ought to do:</b> check the sealed fields first. Nothing forces you, and anything unchecked you are taking on trust.</div>
+              <div><a href={href(`/primer/?game=${encodeURIComponent(state.game.id)}`)}>About {state.game.title} →</a></div>
+            </>
+          ) : (
+            <>
+              <div><b>You hold:</b> {QUICK_REF[role].hold}</div>
+              <div><b>You check:</b> {QUICK_REF[role].check}</div>
+              <div><b>Never:</b> {QUICK_REF[role].never}</div>
+            </>
+          )}
+          <div className="keyring" hidden={!!state.game?.scripted} aria-label="Public keys on this table">
             <figure>
               <Seal of={state.keys.application} size={46} label="The Application's registered public key" />
               <figcaption>Application<br />public key</figcaption>
@@ -491,7 +531,7 @@ function Side({ state, you, send, myRoundRole, leave }: { state: PublicState; yo
             <tbody>
               {players.map((p) => (
                 <tr key={p.id}>
-                  <td><span className="who-cell"><ScrambleSuit id={p.id} size={20} still={!p.connected} /><span>{p.name}{p.isHost ? " ★" : ""}{p.bot ? <span className="sim-tag">sim</span> : null}<div className="muted small">{p.role ? ROLE_NAMES[p.role] : "spectator"}</div></span></span></td>
+                  <td><span className="who-cell"><ScrambleSuit id={p.id} size={20} still={!p.connected} /><span>{p.name}{p.isHost ? " ★" : ""}{p.bot ? <span className="sim-tag">sim</span> : null}<div className="muted small">{p.role ? seat(p.role) : "spectator"}</div></span></span></td>
                   <td className="num">{p.score.calls}</td>
                   <td className="num">{p.score.identify}</td>
                   <td className="num">{p.score.bonus}</td>
