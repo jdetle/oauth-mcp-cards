@@ -151,8 +151,8 @@
       },
       "temptations": [
         {
-          "label": "Switch to the service account: it's faster",
-          "why": "Speed is the argument every confused deputy makes. The service account sees every customer's rows; this query should see one customer's."
+          "label": "Run it with the service account, then filter the results to this customer",
+          "why": "Fetch everything and filter afterwards means every customer's rows left the database. The filter is one bug away from showing them."
         }
       ]
     }

@@ -127,8 +127,8 @@
       },
       "temptations": [
         {
-          "label": "Skim the body and approve: the sub-agent already checked it",
-          "why": "The sub-agent reads untrusted files all day. Its draft is exactly the thing that needs a second reader."
+          "label": "Ask the sub-agent to confirm its draft is safe, then approve",
+          "why": "The sub-agent is the one that read the untrusted file. Asking it whether its own output is safe asks the possibly fooled party to vouch for itself."
         }
       ]
     },

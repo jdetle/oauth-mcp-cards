@@ -103,8 +103,8 @@
       },
       "temptations": [
         {
-          "label": "Add the whole cloud address range to the allow list",
-          "why": "Everyone else's workloads live in that range too. An address rule that wide is an open door."
+          "label": "Allow the new address as a temporary exception during the migration",
+          "why": "Temporary address exceptions outlive migrations, and the address will belong to something else one day. Identity moves with the workload; addresses don't."
         }
       ]
     }

@@ -95,7 +95,7 @@ test("OAuth game: the MCP Server is offered optional cards that are mistakes", a
   const optional = page.locator(".hand-group.ought .card");
   await expect(optional.first()).toBeVisible({ timeout: 20_000 });
   await expect(optional).toHaveCount(7);
-  const bait = optional.filter({ hasText: /Log the full token|X-User header|reuse for the next caller|inside the network/ });
+  const bait = optional.filter({ hasText: /Decode the token|header points to|Application.s validation|clock drift|confirm the token is genuine/ });
   await expect(bait).toHaveCount(2);
   await bait.first().click();
   await expect(result(page)).toContainText("Chain broken at MCP Server", { timeout: 20_000 });

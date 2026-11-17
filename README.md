@@ -68,9 +68,20 @@ Warm-ups stay fully visible, so audience, scope and issuer are learned before th
 
 ### Not everything optional is a good idea
 
-Mixed in with the optional checks are **temptations**: optional cards that look helpful and aren't ("Log the full token so you can debug later", "Trust the caller's X-User header instead", "Run it twice in case the first one fails"). Nothing on the card marks it. Playing one breaks the chain on the spot, and the result says why. So "play every optional card" is not a strategy: you have to know which ones are checks.
+Mixed in with the optional checks are **temptations**: optional cards that a careful person could pick, believing it the diligent thing to do, and that are still wrong. Nothing on the card marks it. Playing one breaks the chain on the spot, and the result says why. So "play every optional card" is not a strategy: you have to know which ones are real checks.
 
-- OAuth game: after the warm-ups the MCP Server is dealt two (of four) and the Application one (of two), from `TEMPTATIONS` in `server/src/engine.rs`.
+They are written to sound like good practice:
+
+| Card | Why it is wrong |
+|---|---|
+| Decode the token and read its claims before deciding | Decoding is not verifying: until the signature is checked, the claims are the caller's word |
+| Verify the signature with the key the token's header points to | A token that says where to fetch its key will always verify |
+| Rely on the Application's validation: it checked this token already | It validated for itself; each audience has to validate for itself |
+| Run it with the service account, then filter the results to this customer | Every customer's rows left the database; the filter is one bug from showing them |
+| Treat the valid signature as proof the image is safe to run | A signature says who built it, not what is inside |
+| Accept any origin that contains your domain name | `shop.example.login-help.net` contains it |
+
+- OAuth game: after the warm-ups the MCP Server is dealt two (of five) and the Application one (of three), from `TEMPTATIONS` in `server/src/engine.rs`.
 - Scripted games: each step can list its own `temptations` (label and why) in the round file.
 - Sims never play them.
 

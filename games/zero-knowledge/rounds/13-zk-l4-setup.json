@@ -53,8 +53,8 @@
       },
       "temptations": [
         {
-          "label": "Reuse the setup from an unrelated project",
-          "why": "A setup belongs to one circuit, and you know nothing about who kept what from someone else's ceremony."
+          "label": "Reuse a well-known project's setup: theirs was audited",
+          "why": "A setup is for one circuit; theirs proves their statement, not yours. Their audit tells you nothing about keys generated for a different question."
         }
       ]
     },

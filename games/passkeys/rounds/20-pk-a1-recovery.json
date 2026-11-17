@@ -53,8 +53,8 @@
       },
       "temptations": [
         {
-          "label": "Read out the backup codes to speed things up",
-          "why": "Backup codes are passwords. Reading them to a caller is handing over the account."
+          "label": "Verify them by date of birth and postcode, then proceed",
+          "why": "Those facts are in data breaches and on social media. Knowing them shows someone looked the owner up, not that they are the owner."
         }
       ]
     },

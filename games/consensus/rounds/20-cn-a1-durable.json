@@ -53,8 +53,8 @@
       },
       "temptations": [
         {
-          "label": "Commit as soon as you have it yourself",
-          "why": "One copy is not a majority. If you fail now, the entry the client was promised does not exist anywhere else."
+          "label": "Commit now: you are the leader, and followers always catch up",
+          "why": "Followers catch up with whoever leads next. If you fail first, that leader never had this entry, and the client was told it was safe."
         }
       ]
     },

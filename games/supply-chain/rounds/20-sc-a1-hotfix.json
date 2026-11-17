@@ -53,8 +53,8 @@
       },
       "temptations": [
         {
-          "label": "Skip the tests: there's no time tonight",
-          "why": "A hotfix that breaks checkout is a second incident. The checks are what make shipping at night survivable."
+          "label": "Have a senior engineer approve it in chat in place of the review",
+          "why": "Approval in chat leaves no record tied to the commit, and one senior account is one account. The review rule exists for exactly this night."
         }
       ]
     },

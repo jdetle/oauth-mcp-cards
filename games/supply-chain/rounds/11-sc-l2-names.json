@@ -57,8 +57,8 @@
       },
       "temptations": [
         {
-          "label": "Let the installer pick the closest matching name",
-          "why": "The closest name is exactly what a typosquatter registers. A dependency is the name you reviewed, or nothing."
+          "label": "Check that the package is popular: plenty of downloads and stars",
+          "why": "Popularity can be bought or inflated, and a look-alike name borrows the real package's reputation. Identity is the exact name and publisher, not a count."
         }
       ]
     },

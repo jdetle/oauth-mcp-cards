@@ -134,8 +134,8 @@
       },
       "temptations": [
         {
-          "label": "Skip the origin check when the signature is valid",
-          "why": "A valid signature over the wrong origin is exactly what a relay produces. Valid is not the same as meant for you."
+          "label": "Accept any origin that contains your domain name",
+          "why": "shop.example.login-help.net contains your domain name. The origin has to match exactly, not resemble."
         }
       ]
     }

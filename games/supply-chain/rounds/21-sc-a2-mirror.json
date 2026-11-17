@@ -99,8 +99,8 @@
       },
       "temptations": [
         {
-          "label": "Add the unknown key to the trusted list so it stops failing",
-          "why": "Trusting a key because it showed up is how the trusted list becomes the attacker's list."
+          "label": "Trust the signature: the mirror is ours, so its keys are ours",
+          "why": "Owning the server is not the same as knowing the key. Which keys may sign releases is decided in advance, not inferred from where a file was found."
         }
       ]
     }

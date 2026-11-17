@@ -57,8 +57,8 @@
       },
       "temptations": [
         {
-          "label": "Mark the user as verified to skip the prompt",
-          "why": "That flag is the authenticator's word that it checked. Setting it without checking makes every site that trusts it wrong."
+          "label": "Mark the user verified: the phone was unlocked a minute ago",
+          "why": "Unlocked a minute ago is not checked now. Whoever picked up the unlocked phone inherits that minute."
         }
       ]
     },

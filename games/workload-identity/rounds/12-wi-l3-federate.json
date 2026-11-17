@@ -99,8 +99,8 @@
       },
       "temptations": [
         {
-          "label": "Return everything they could want: they're a trusted partner",
-          "why": "Trusted to be who they are, not trusted with everything. Each caller gets what its role allows and no more."
+          "label": "Return the full report: they passed mutual TLS, so they are authorised",
+          "why": "Mutual TLS proves who is calling. It grants nothing; what a caller may read is a separate decision made by your policy."
         }
       ]
     }

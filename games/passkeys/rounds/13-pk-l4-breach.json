@@ -92,8 +92,8 @@
       },
       "temptations": [
         {
-          "label": "Reset the stored counter so the warning goes away",
-          "why": "The warning is the only sign that the key was copied. Clearing it tells the copy it is welcome."
+          "label": "Accept it and store the lower number: they probably restored a backup",
+          "why": "A device-bound key can't be restored from a backup; that is what device-bound means. A lower counter is a second device."
         }
       ]
     }

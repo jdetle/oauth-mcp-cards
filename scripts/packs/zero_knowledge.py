@@ -132,7 +132,7 @@ R = [
    ], intrusion=intr("leftover randomness", "kept by one participant", "One participant still holds the secret randomness.",
         "Do not publish: run the setup again", "Whoever holds it can forge proofs that verify. It is called toxic waste for a reason.",
         "One participant in the setup had kept its secret randomness."),
-      tempt=[("Reuse the setup from an unrelated project", "A setup belongs to one circuit, and you know nothing about who kept what from someone else's ceremony.")]),
+      tempt=[("Reuse a well-known project's setup: theirs was audited", "A setup is for one circuit; theirs proves their statement, not yours. Their audit tells you nothing about keys generated for a different question.")]),
    step("read", VERIFIER, slip=slip(PROVER, "Proof", [f("verifies against the keys", "yes"),
         f("statement proved", "the holder is over 18", "Read exactly which statement the proof is for", "The statement is: the holder is over 18.")]), cards=[
      ok("Accept the proof"),

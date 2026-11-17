@@ -53,8 +53,8 @@
       },
       "temptations": [
         {
-          "label": "Allow everything from the cluster's address range",
-          "why": "That rule is the flat network: one compromised pod and every service is reachable."
+          "label": "Allow it: the network policy only lets cluster pods reach you",
+          "why": "Then the network policy is doing your authentication, and any pod in the cluster passes it, including a compromised one."
         }
       ]
     },

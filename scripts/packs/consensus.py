@@ -151,7 +151,7 @@ R = [
    ], intrusion=intr("stored", "still in memory when it replied", "The follower replied before writing to disk.",
         "Do not count it yet", "An entry in memory is lost in a crash. Counting it means the majority exists only on paper.",
         "Follower A acknowledged an entry it had not yet written to disk."),
-      tempt=[("Commit as soon as you have it yourself", "One copy is not a majority. If you fail now, the entry the client was promised does not exist anywhere else.")]),
+      tempt=[("Commit now: you are the leader, and followers always catch up", "Followers catch up with whoever leads next. If you fail first, that leader never had this entry, and the client was told it was safe.")]),
    step("tell", CLIENT, slip=slip(LEAD, "Result", [f("write", "balance = 40"),
         f("committed by", "2 of 3 nodes", "Ask how many nodes hold it", "Two of three hold it.")]), cards=[
      ok("Treat it as saved"),

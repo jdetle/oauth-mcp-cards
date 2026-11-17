@@ -107,8 +107,8 @@
       },
       "temptations": [
         {
-          "label": "Turn the admission policy off for this one rollout",
-          "why": "A policy that is switched off when it is inconvenient protects nothing. The exception becomes the route in."
+          "label": "Treat the valid signature as proof the image is safe to run",
+          "why": "A signature says who built it. It says nothing about what is inside; correctly signed images ship known flaws every day."
         }
       ]
     }

@@ -113,8 +113,8 @@
       },
       "temptations": [
         {
-          "label": "Deploy to production first and verify afterwards",
-          "why": "Verifying after it runs is finding out, not preventing. The gate is before production or it isn't a gate."
+          "label": "Send it to a small canary in production while verification finishes",
+          "why": "A canary is production: real traffic, real data. Unverified code runs there exactly as it would everywhere else."
         }
       ]
     }

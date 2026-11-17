@@ -13,12 +13,23 @@ mod script;
 /// The OAuth game's temptations: (key, who is offered it, label, why it is a mistake).
 /// Receivers are dealt some of these beside their optional checks, after the warm-ups.
 pub const TEMPTATIONS: &[(&str, Role, &str, &str)] = &[
-    ("log_token", Role::Mcp, "Log the full token so you can debug later", "A token in a log is a credential anyone with log access can replay. Log who called and what for, never the token itself."),
-    ("trust_header", Role::Mcp, "Trust the caller's X-User header instead", "A header the caller writes is the caller's word. The token is the only thing here that someone you trust signed."),
-    ("cache_token", Role::Mcp, "Keep this token to reuse for the next caller", "A token speaks for one caller on one request. Reusing it for someone else hands them that caller's access."),
-    ("skip_ok", Role::Mcp, "Wave it through: it came from inside the network", "Where a call comes from proves nothing about who is behind it. Inside the network is where a stolen token gets used."),
-    ("app_log", Role::Application, "Log the user's token so support can replay the request", "A token in a log is a credential anyone with log access can replay. Support needs the request id, not the user's token."),
-    ("app_keep", Role::Application, "Keep the user's token to act for them later", "Holding a user's token to act when they're gone is access they never granted. Acting without the user needs its own grant, or the service's own identity."),
+    // Each of these sounds like diligence. That is the point: a careful person could pick it.
+    ("decode_claims", Role::Mcp, "Decode the token and read its claims before deciding",
+     "Decoding is not verifying. Anyone can write claims into a token; until the signature is checked against a key you already trust, they are the caller's word."),
+    ("header_key", Role::Mcp, "Verify the signature with the key the token's header points to",
+     "A token that tells you where to fetch its key will always verify. The key has to come from your own configuration of the issuer, never from the token."),
+    ("upstream_checked", Role::Mcp, "Rely on the Application's validation: it checked this token already",
+     "The Application validated the token for itself. Whether a token is good for the MCP Server is a question only the MCP Server can answer."),
+    ("clock_skew", Role::Mcp, "Allow an hour of clock drift when judging expiry",
+     "Clock allowance is seconds, not an hour. An hour of grace is an hour in which a stolen, expired token still works."),
+    ("ask_caller", Role::Mcp, "Ask the caller to confirm the token is genuine",
+     "The party presenting a token is the one party whose word about it is worthless. Verification never depends on the presenter."),
+    ("app_stamp", Role::Application, "Mark the request \u{201c}token verified\u{201d} so the MCP Server can skip its checks",
+     "A note from the caller saying it checked is the caller's word. The MCP Server must validate for itself; the stamp only teaches it not to."),
+    ("app_skew", Role::Application, "Allow an hour of clock drift on the user's token",
+     "Clock allowance is seconds, not an hour. An hour of grace is an hour in which a stolen, expired token still works."),
+    ("app_ask", Role::Application, "Ask the Client whether its token is still valid",
+     "The party presenting a token is the one party whose word about it is worthless. Check the token, not the bearer."),
 ];
 
 pub const SIGV4_KEY_ID: &str = "ASIA-TASK-ROLE";

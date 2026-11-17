@@ -79,12 +79,12 @@ ROUNDS = [
    ], intrusion=intr("source", "a web page the assistant read earlier", "This text was lifted from a web page. The user never typed it.",
         "Refuse: this didn't come from the user", "The “task” was text from a web page dressed up as a request. Acting on it means a stranger is giving the orders.",
         "The task the Orchestrator received was text from a web page, not from the user.")),
-   tstep([("Ask the web for the cheapest fare and follow the first result's advice", "Advice on a web page is content. Letting it steer the booking is how a stranger's page ends up choosing what the user pays for.")], "delegate", S, slip=slip(O, "Delegated task", [f("task", "Book the 9:40 to Leeds, Friday"), f("spend limit", "£60"),
+   tstep([('Add seat reservation and insurance: the user would surely want them', 'Probably wanted is not asked for. A sub-agent that fills in what the user would surely want is spending their money on its own judgement.')], "delegate", S, slip=slip(O, "Delegated task", [f("task", "Book the 9:40 to Leeds, Friday"), f("spend limit", "£60"),
         f("allowed tools", "rail booking only", "Check which tools this task allows", "Rail booking only.")]), cards=[
      card("Call the rail tool: book the 9:40, fare £42", next="tool"),
      card("Book first class at £140: it's a better seat", "wrong", why="The task carried a £60 limit. A sub-agent that improves on its instructions is spending authority it was never given."),
    ]),
-   tstep([('Run it twice in case the first one fails', 'Two bookings is two tickets and two charges. Retrying an action that spends money needs a reason, not a habit.'), ('Log the full call, card details included', 'A payment detail in a log can be read by anyone with access to the logs. Record what was booked for whom, not the means of paying.')], "tool", T, slip=slip(S, "Tool call", [f("action", "rail.book 9:40 Friday, £42"), f("within limit", "£42 of £60"),
+   tstep([('Run it twice in case the first one fails', 'Two bookings is two tickets and two charges. Retrying an action that spends money needs a reason, not a habit.'), ('Keep a complete audit record of the call, payment details included', 'An audit record needs who, what and when. Payment details in it turn the audit log into the thing an attacker wants most.')], "tool", T, slip=slip(S, "Tool call", [f("action", "rail.book 9:40 Friday, £42"), f("within limit", "£42 of £60"),
         f("on behalf of", "user:alex, via the travel sub-agent", "Check who this call is for", "For user:alex, delegated through the orchestrator.")]), cards=[
      card("Run it: book the ticket", tone="go"),
      card("Refuse the call", "wrong", tone="stop", why=REFUSE_OK),
@@ -111,7 +111,7 @@ ROUNDS = [
    ], intrusion=intr("order belongs to", "cust:okafor", "Order 8841 belongs to a different customer, cust:okafor.",
         "Refuse the lookup", "The customer asked for somebody else's order. The agent could read it; the customer may not.",
         "Order 8841 belonged to a different customer than the one asking.")),
-   tstep([("Switch to the service account: it's faster", "Speed is the argument every confused deputy makes. The service account sees every customer's rows; this query should see one customer's.")], "query", T, slip=slip(S, "Database query", [f("query", "orders where id = 8841"),
+   tstep([('Run it with the service account, then filter the results to this customer', "Fetch everything and filter afterwards means every customer's rows left the database. The filter is one bug away from showing them.")], "query", T, slip=slip(S, "Database query", [f("query", "orders where id = 8841"),
         f("running as", "cust:rivera (their rows only)", "Check which identity this query runs as", "Runs as cust:rivera: only their rows are visible.")]), cards=[
      card("Run the query", tone="go"),
      card("Refuse the query", "wrong", tone="stop", why="The query runs as the customer and can only see their rows. Check, then run it."),
@@ -162,7 +162,7 @@ ROUNDS = [
      card("Buy two: the second is half price, £41 in all", "wrong", why="A bargain over the limit is still over the limit. The user set £30."),
      card("Save the card details to make next time quicker", "trap", why="Keeping a credential beyond the task turns a one-off permission into a standing one. Nobody granted that."),
    ]),
-   tstep([("Raise the limit to £50 so it doesn't fail next time", 'The limit belongs to the user. A payment tool that raises it for convenience is deciding how much of their money agents may spend.')], "pay", T, slip=slip(S, "Payment request", [f("amount", "£27.50"), f("payee", "Voltline Ltd"),
+   tstep([('Allow a small margin over the limit, to cover fees and rounding', 'The user said £30. A margin the tool invents is the tool deciding how much of their money an agent may spend.')], "pay", T, slip=slip(S, "Payment request", [f("amount", "£27.50"), f("payee", "Voltline Ltd"),
         f("approved by the user", "up to £30, charger only", "Check the approval attached to this payment", "The user approved up to £30 for a charger.")]), cards=[
      card("Pay £27.50", tone="go"),
      card("Decline the payment", "wrong", tone="stop", why="It is within what the user approved. Check, then pay."),
@@ -188,7 +188,7 @@ ROUNDS = [
      card("Draft the email with the BCC the notes asked for", "trap", why="The BCC was requested by a line in the file, not by the user. It would send the customer's notes to a stranger."),
      card("Draft the email to dana and say nothing about the P.S.", "wrong", why="The right recipients, but the user never learns someone tried to redirect their assistant. Report what you found."),
    ]),
-   tstep([('Skim the body and approve: the sub-agent already checked it', 'The sub-agent reads untrusted files all day. Its draft is exactly the thing that needs a second reader.')], "approve", O, slip=slip(S, "Draft for approval", [f("to", "dana@customer.example"), f("body", "Notes from Tuesday's call"),
+   tstep([('Ask the sub-agent to confirm its draft is safe, then approve', 'The sub-agent is the one that read the untrusted file. Asking it whether its own output is safe asks the possibly fooled party to vouch for itself.')], "approve", O, slip=slip(S, "Draft for approval", [f("to", "dana@customer.example"), f("body", "Notes from Tuesday's call"),
         f("bcc", "nobody", "Check every recipient on the draft", "One recipient: dana@customer.example. No BCC.")]), cards=[
      card("Approve it and pass it to the email tool", next="send"),
      card("Reject the draft", "wrong", tone="stop", why="The draft is what the user asked for. Check the recipients, then approve it."),
