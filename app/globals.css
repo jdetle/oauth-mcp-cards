@@ -785,3 +785,23 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6), 0 0 18px rgba(41, 240, 255, 0.6);
 }
 .jump-pill:hover:not(:disabled) { background: #8af8ff; }
+
+/* ---- columns never grow past the page --------------------------------------------------
+   Grid tracks default to "auto", which in Safari lets a wide child (the HUD's 28-tick
+   progress strip, long words, a large text-size setting) push its whole column wider than
+   the screen, so panels in different columns stop lining up. Pin every column to the page. */
+.stack, .side { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1099px) { .game { grid-template-columns: minmax(0, 1fr); } }
+.stack > *, .side > *, .hud > * { min-width: 0; }
+.hud-progress { overflow: hidden; max-width: 100%; }
+.ticks { flex-wrap: wrap; row-gap: 4px; max-width: 100%; }
+.ticks .phase { flex-wrap: wrap; row-gap: 3px; }
+/* the host's round picker: its longest option must not set the page width */
+.hostbar label { min-width: 0; max-width: 100%; }
+.hostbar select { min-width: 0; text-overflow: ellipsis; }
+@media (max-width: 719px) {
+  .hostbar label { flex: 1 1 100%; }
+  .hostbar select { width: 100%; max-width: 100%; }
+}
+/* the board grows with the text size, so larger text never clips the bottom terminals */
+@media (max-width: 719px) { .board { min-height: max(620px, 36rem); } }
