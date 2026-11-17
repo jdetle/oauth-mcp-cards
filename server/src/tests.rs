@@ -1524,3 +1524,17 @@ fn sims_never_take_the_bait() {
         assert!(r.moves.iter().all(|m| !m.trap), "round {i}: a sim played a trap");
     }
 }
+
+#[test]
+fn old_links_are_sent_to_the_new_prefix() {
+    use crate::server::legacy_target as t;
+    let (old, new) = ("/mcp-oauth", "/games");
+    assert_eq!(t("/mcp-oauth", None, old, new).as_deref(), Some("/games/?game=oauth-mcp"));
+    assert_eq!(t("/mcp-oauth/", Some("x=1"), old, new).as_deref(), Some("/games/?game=oauth-mcp"));
+    assert_eq!(t("/mcp-oauth/play/", Some("room=brisk-ember"), old, new).as_deref(), Some("/games/play/?room=brisk-ember"));
+    assert_eq!(t("/mcp-oauth/learn/", None, old, new).as_deref(), Some("/games/learn/"));
+    assert_eq!(t("/mcp-oauthx", None, old, new), None);
+    assert_eq!(t("/games/play/", None, old, new), None);
+    assert_eq!(t("/mcp-oauth/play/", None, "", new), None);
+    assert_eq!(t("/games/", None, "/games", new), None);
+}

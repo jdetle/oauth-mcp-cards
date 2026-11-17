@@ -11,8 +11,10 @@ if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]; then export AWS_PROFILE="${AWS_PROFILE:-ag
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 EXPECTED_ACCOUNT="${EXPECTED_ACCOUNT:-800002328643}"
 BUILD_STACK="${BUILD_STACK:-oauth-mcp-cards-build}"
-# The site lives at jdetle.com/mcp-oauth (via a Cloudflare Worker), so it is built and served under that prefix.
-BASE_PATH="${BASE_PATH-/mcp-oauth}"
+# The site lives at jdetle.com/games (via a Cloudflare Worker), so it is built and served under that prefix.
+# It used to live at /mcp-oauth; links there are redirected.
+BASE_PATH="${BASE_PATH-/games}"
+LEGACY_BASE_PATH="${LEGACY_BASE_PATH-/mcp-oauth}"
 APP_STACK="${APP_STACK:-oauth-mcp-cards-app}"
 
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
@@ -85,7 +87,7 @@ EXTRA+=("SessionSecretParam=$SESSION_PARAM")
 
 EDGE_PARAM="${EDGE_KEY_PARAM:-/oauth-mcp-cards/edge-public-key}"
 if has_param "$EDGE_PARAM"; then EXTRA+=("EdgePublicKey=$(aws ssm get-parameter --name "$EDGE_PARAM" --query Parameter.Value --output text)"); echo "    edge-signed visitor addresses: on"; else EXTRA+=("EdgePublicKey="); fi
-EXTRA+=("BasePath=$BASE_PATH")
+EXTRA+=("BasePath=$BASE_PATH" "LegacyBasePath=$LEGACY_BASE_PATH")
 
 echo "==> App stack ($APP_STACK) with $REPO:$TAG"
 aws cloudformation deploy --stack-name "$APP_STACK" --template-file deploy/app.yaml --capabilities CAPABILITY_IAM \

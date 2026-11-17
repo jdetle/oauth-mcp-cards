@@ -10,6 +10,7 @@
 //!   ADMIN_PASSWORD_HASH  scrypt hash from `oauth-mcp-server hash-password`; enables /admin/
 //!   TURNSTILE_SITE_KEY, TURNSTILE_SECRET  Cloudflare Turnstile bot check on create/join/admin login
 //!   BASE_PATH       serve the whole app under this prefix, e.g. /mcp-oauth (default: site root)
+//!   LEGACY_BASE_PATH  a prefix the site used to live under (e.g. /mcp-oauth): links there are redirected
 //!   EDGE_PUBLIC_KEY Ed25519 public key (hex) of the edge Worker that signs visitor addresses
 //!   INTRUDER_RATE   0..1, chance per round that a token is swapped in transit (default 0.35)
 //!   INTRUDER_TARGET application | mcp: pin whose token the intruder goes after (default: random)
@@ -105,7 +106,9 @@ async fn main() {
     server::spawn_saver(state.clone());
     let leaving = state.clone();
     let base = state.base_path.clone();
-    let app = server::with_base_path(server::router(state, &static_dir), base);
+    // old links (the site's previous prefix) are redirected to the new one
+    let legacy = server::normalize_base_path(&std::env::var("LEGACY_BASE_PATH").unwrap_or_default());
+    let app = server::with_base_path(server::router(state, &static_dir), base, legacy);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
     eprintln!("listening on http://{addr}{}", server::normalize_base_path(&std::env::var("BASE_PATH").unwrap_or_default()));

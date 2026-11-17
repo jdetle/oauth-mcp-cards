@@ -204,9 +204,12 @@ Fields:
 
 `bun run test:rust` will tell you if your new scenario can't be won.
 
-## Hosting at jdetle.com/mcp-oauth
+## Hosting at jdetle.com/games
 
-The public address is `https://jdetle.com/mcp-oauth/`. `jdetle.com` is a Cloudflare zone whose other paths go to the blog; a Cloudflare Worker (`worker/edge.js`, script `oauth-mcp-cards-edge`) on the route `jdetle.com/mcp-oauth*` passes only this app's requests, WebSockets included, through to CloudFront. The blog is untouched.
+The site moved here from `jdetle.com/mcp-oauth`. Old links still work: the edge Worker answers anything under `/mcp-oauth` with a redirect (`/mcp-oauth/` → `/games/?game=oauth-mcp`, everything else to the same path under `/games`), and the server does the same for `LEGACY_BASE_PATH`.
+
+
+The public address is `https://jdetle.com/games/`. `jdetle.com` is a Cloudflare zone whose other paths go to the blog; a Cloudflare Worker (`worker/edge.js`, script `oauth-mcp-cards-edge`) on the route `jdetle.com/games*` passes only this app's requests, WebSockets included, through to CloudFront. The blog is untouched.
 
 The app is built and served under the prefix: `NEXT_PUBLIC_BASE_PATH=/mcp-oauth` for the front end and `BASE_PATH=/mcp-oauth` for the server, which strips the prefix before routing, scopes cookies to `/mcp-oauth`, keeps `/api/health` at the root for the load balancer, and redirects `/` into the app. `bun run deploy` does both.
 

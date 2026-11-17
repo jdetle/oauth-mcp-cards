@@ -34,6 +34,6 @@
     "deploy": "bash deploy/fargate.sh",
     "test:ui": "playwright test",
     "admin:password": "bash scripts/admin-password.sh",
-    "test:ui:prefixed": "NEXT_PUBLIC_API_BASE= NEXT_PUBLIC_BASE_PATH=/mcp-oauth next build && E2E_BASE_PATH=/mcp-oauth playwright test; NEXT_PUBLIC_API_BASE= next build"
+    "test:ui:prefixed": "NEXT_PUBLIC_API_BASE= NEXT_PUBLIC_BASE_PATH=/games next build && E2E_BASE_PATH=/games playwright test; NEXT_PUBLIC_API_BASE= next build"
   }
 }

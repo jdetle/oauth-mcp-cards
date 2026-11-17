@@ -1098,6 +1098,36 @@ pub fn spawn_reaper(state: Arc<AppState>) {
 
 const ROOT_REDIRECT: &str = "/__omcp_root";
 const OUTSIDE: &str = "/__omcp_outside";
+const MOVED: &str = "/__omcp_moved";
+
+/// The site used to live under another prefix (jdetle.com/mcp-oauth). Where an old link goes
+/// now: the old home is the OAuth game on the series home; everything else keeps its path.
+pub fn legacy_target(path: &str, query: Option<&str>, legacy: &str, base: &str) -> Option<String> {
+    if legacy.is_empty() || legacy == base {
+        return None;
+    }
+    let rest = path.strip_prefix(legacy)?;
+    if !(rest.is_empty() || rest.starts_with('/')) {
+        return None;
+    }
+    Some(match (rest, query) {
+        ("" | "/", _) => format!("{base}/?game={}", crate::pack::DEFAULT_GAME),
+        (rest, Some(q)) if !q.is_empty() => format!("{base}{rest}?{q}"),
+        (rest, _) => format!("{base}{rest}"),
+    })
+}
+
+#[derive(Deserialize)]
+struct MovedTo {
+    to: String,
+}
+
+/// Answers an old link with a permanent redirect. Only ever to a path under our own base.
+async fn moved(State(state): State<Arc<AppState>>, axum::extract::Query(q): axum::extract::Query<MovedTo>) -> Response {
+    let home = format!("{}/", state.base_path);
+    let ok = q.to.starts_with(&home) && !q.to.starts_with("//") && !q.to.contains('\\') && !q.to.contains('\n') && !q.to.contains('\r');
+    axum::response::Redirect::permanent(if ok { &q.to } else { &home }).into_response()
+}
 
 /// Where a request path lands once the base path (e.g. /mcp-oauth) is taken off.
 /// Paths under the base lose the prefix; the bare origin and the bare base redirect to the
@@ -1119,9 +1149,16 @@ pub fn route_under_base(path: &str, base: &str) -> String {
 }
 
 /// Wrap the app so the base path is stripped before routing.
-pub fn with_base_path(app: Router, base: String) -> impl tower::Service<axum::extract::Request, Response = Response, Error = std::convert::Infallible, Future: Send> + Clone + Send + 'static {
+pub fn with_base_path(app: Router, base: String, legacy: String) -> impl tower::Service<axum::extract::Request, Response = Response, Error = std::convert::Infallible, Future: Send> + Clone + Send + 'static {
     use tower::ServiceExt;
     app.map_request(move |mut req: axum::extract::Request| {
+        if let Some(to) = legacy_target(req.uri().path(), req.uri().query(), &legacy, &base) {
+            let enc = to.replace('%', "%25").replace('&', "%26").replace('#', "%23").replace('+', "%2B").replace(' ', "%20");
+            if let Ok(new) = format!("{MOVED}?to={enc}").parse() {
+                *req.uri_mut() = new;
+            }
+            return req;
+        }
         if !base.is_empty() {
             let uri = req.uri();
             let path = route_under_base(uri.path(), &base);
@@ -1151,7 +1188,8 @@ pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
         .route("/api/rooms/{name}/history", get(room_history))
         .route("/ws/{name}", get(ws_handler))
         .route("/_s10/v2/envelopes", post(s10_proxy))
-        .route("/monitoring", post(sentry_tunnel));
+        .route("/monitoring", post(sentry_tunnel))
+        .route(MOVED, get(moved).post(moved));
     let index = static_dir.join("404.html");
     let files = ServeDir::new(static_dir).append_index_html_on_directories(true).not_found_service(ServeFile::new(index));
     let home = format!("{}/", state.base_path);

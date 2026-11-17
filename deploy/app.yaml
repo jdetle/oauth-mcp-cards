@@ -21,7 +21,11 @@ Parameters:
   BasePath:
     Type: String
     Default: ""
-    Description: Serve the app under this prefix (e.g. /mcp-oauth). Must match the image's BASE_PATH build arg
+    Description: Serve the app under this prefix (e.g. /games). Must match the image's BASE_PATH build arg
+  LegacyBasePath:
+    Type: String
+    Default: ""
+    Description: A prefix the site used to live under (e.g. /mcp-oauth); links there are redirected to BasePath
   EdgePublicKey:
     Type: String
     Default: ""
@@ -207,6 +211,7 @@ Resources:
             - { Name: TRUST_CLOUDFRONT, Value: "1" }
             - !If [HasTurnstile, { Name: TURNSTILE_SITE_KEY, Value: !Ref TurnstileSiteKey }, !Ref "AWS::NoValue"]
             - { Name: BASE_PATH, Value: !Ref BasePath }
+            - { Name: LEGACY_BASE_PATH, Value: !Ref LegacyBasePath }
             - { Name: ROOMS_TABLE, Value: !Ref RoomsTable }
             - { Name: AWS_REGION, Value: !Ref AWS::Region }
             - { Name: IDLE_SLEEP_MIN, Value: !Ref IdleSleepMinutes }
@@ -325,6 +330,11 @@ Resources:
           OriginRequestPolicyId: 33f36d7e-f396-46d9-90e0-52428a34d9dc # Managed-AllViewerAndCloudFrontHeaders-2022-06
           Compress: true
         CacheBehaviors:
+          - PathPattern: /games/_next/static/*
+            TargetOriginId: alb
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+            Compress: true
           - PathPattern: /mcp-oauth/_next/static/*
             TargetOriginId: alb
             ViewerProtocolPolicy: redirect-to-https
