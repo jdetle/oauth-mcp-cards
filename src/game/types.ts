@@ -375,6 +375,8 @@ export interface PublicState {
   rounds: RoundSummary[];
   round: PublicRound | null;
   hostId: string | null;
+  /** the host's speed dial, 1 (slowest) to 5 (fastest) */
+  speed: number;
 }
 
 export interface PrivateView {
@@ -401,6 +403,7 @@ export type ClientMessage =
   | { t: "tell" }
   | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal" | "addBots" | "removeBots"; round?: number }
   | { t: "pick"; option: string } // scripted games: answer the round's question
+  | { t: "speed"; speed: number } // host only: 1 (slowest) to 5 (fastest)
   | { t: "end" } // host only: end the game now and close the room for everyone
   | { t: "ready"; ready: boolean }
   | { t: "ping" };

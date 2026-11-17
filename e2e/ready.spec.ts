@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createRoom, fillWithSims, jumpTo, PASSWORD, playCard, result } from "./helpers";
 
-// The test server runs with READY_TIMEOUT_MS=20000 (the real default is a minute).
+// The test server runs with READY_TIMEOUT_MS=20000 (the real default is three minutes).
 
 test("solo: one click on I'm ready starts the next round", async ({ page }) => {
   await createRoom(page, "Solo");

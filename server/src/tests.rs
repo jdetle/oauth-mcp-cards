@@ -665,14 +665,14 @@ fn ready_check_opens_when_a_round_ends() {
     let (g, _, a, b) = ready_game();
     let r = g.round.as_ref().unwrap();
     assert_eq!(r.status, RoundStatus::Done);
-    assert_eq!(r.ready_deadline, Some(NOW + 60_000));
+    assert_eq!(r.ready_deadline, Some(NOW + 180_000));
     let mut req = g.ready_required();
     req.sort();
     let mut want = vec![a.clone(), b.clone()];
     want.sort();
     assert_eq!(req, want, "only the humans are waited for, not the sims");
     let v = g.ready_view(&|_| true).unwrap();
-    assert_eq!(v.remaining_ms, 60_000);
+    assert_eq!(v.remaining_ms, 180_000);
     assert_eq!(v.waiting.len(), 2);
 }
 
@@ -693,25 +693,44 @@ fn everyone_ready_moves_on_and_rotates_seats() {
 }
 
 #[test]
-fn a_minute_of_inactivity_moves_on_and_each_click_restarts_it() {
+fn the_host_turns_the_speed_dial_and_it_survives_a_save() {
+    let (mut g, _, a, b) = ready_game();
+    assert_eq!(g.speed, 2, "starts unhurried");
+    assert_eq!(g.pace(), 1.0);
+    assert!(g.set_speed(&b, 5).is_err(), "only the host");
+    assert!(g.set_speed(&a, 0).is_err());
+    assert!(g.set_speed(&a, 6).is_err());
+    g.set_speed(&a, 5).unwrap();
+    assert!(g.pace() < 0.3);
+    g.set_speed(&a, 1).unwrap();
+    assert!(g.pace() > 1.5);
+    assert_eq!(g.public_state(&|_| true, 0).speed, 1);
+    let back = crate::store::decode(&crate::store::encode(&g).unwrap(), &packs()).unwrap();
+    assert_eq!(back.speed, 1);
+    assert_eq!(parse_client_message(r#"{"t":"speed","speed":4}"#), Some(ClientMessage::Speed { speed: 4 }));
+    assert_eq!(parse_client_message(r#"{"t":"speed","speed":4,"x":1}"#), None);
+}
+
+#[test]
+fn three_minutes_of_inactivity_moves_on_and_each_click_restarts_it() {
     let (g0, clock, a, _b) = ready_game();
     let mut g = g0;
     let online = |_: &str| true;
-    clock.store(NOW + 50_000, Ordering::Relaxed);
+    clock.store(NOW + 170_000, Ordering::Relaxed);
     assert_eq!(g.ready_outcome(&online), None);
-    // a click 50s in restarts the minute
+    // a click 170s in restarts the three minutes
     g.set_ready(&a, true).unwrap();
-    assert_eq!(g.round.as_ref().unwrap().ready_deadline, Some(NOW + 110_000));
-    clock.store(NOW + 70_000, Ordering::Relaxed);
-    assert_eq!(g.ready_outcome(&online), None, "the click bought another minute");
+    assert_eq!(g.round.as_ref().unwrap().ready_deadline, Some(NOW + 350_000));
+    clock.store(NOW + 190_000, Ordering::Relaxed);
+    assert_eq!(g.ready_outcome(&online), None, "the click bought another three minutes");
     // changing your mind is activity too
     g.set_ready(&a, false).unwrap();
-    assert_eq!(g.round.as_ref().unwrap().ready_deadline, Some(NOW + 130_000));
-    clock.store(NOW + 130_000, Ordering::Relaxed);
+    assert_eq!(g.round.as_ref().unwrap().ready_deadline, Some(NOW + 370_000));
+    clock.store(NOW + 370_000, Ordering::Relaxed);
     assert_eq!(g.ready_outcome(&online), Some(ReadyAdvance::Idle));
     g.advance_after_ready(ReadyAdvance::Idle).unwrap();
     assert_eq!(g.round.as_ref().unwrap().index, 1);
-    assert!(g.archive.last().unwrap().log.iter().any(|l| l.text.contains("No one moved for 60 seconds")));
+    assert!(g.archive.last().unwrap().log.iter().any(|l| l.text.contains("No one moved for 3 minutes")));
 }
 
 #[test]

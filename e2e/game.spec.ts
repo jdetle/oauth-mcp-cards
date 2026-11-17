@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createRoom, fillWithSims, jumpTo, PASSWORD, playCard, result } from "./helpers";
+import { createRoom, fillWithSims, jumpTo, PASSWORD, playCard, result, unread } from "./helpers";
 
 test("lobby → create room → fill with sims → win an OBO round @smoke", async ({ page }) => {
   await createRoom(page, "Ada");
@@ -176,20 +176,26 @@ test("phone: board, hand drawer and no sideways scroll @mobile", async ({ page }
   }
 });
 
-test("a card play stays on screen for about five seconds, showing expected vs played", async ({ page }) => {
+test("a played card stays until it is clicked, showing expected vs played", async ({ page }) => {
   await createRoom(page, "Slow");
+  await page.removeLocatorHandler(unread(page));
   await fillWithSims(page);
   await jumpTo(page, "Learning: On-Behalf-Of");
   await playCard(page, "Skip the Application"); // a mismatch
-  const card = page.locator(".fx-card").first();
+  const card = page.locator(".fx-card.landed").first();
   await expect(card).toBeVisible();
-  const shown = Date.now();
   await expect(card.locator(".fx-call").first()).toContainText("Send to the Application");
   await expect(card.locator(".fx-call").first()).toContainText("≠");
-  await expect(card).toBeHidden({ timeout: 12_000 });
-  const onScreen = Date.now() - shown;
-  expect(onScreen).toBeGreaterThanOrEqual(4_800);
-  expect(onScreen).toBeLessThan(8_000);
+  await expect(card.locator(".fx-read")).toHaveText("Click when read");
+  // nothing takes it away: it outlasts the old five seconds, and then some
+  await page.waitForTimeout(8_000);
+  await expect(card).toBeVisible();
+  const box = (await card.boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(230);
+  // clicking it is what clears it (the sims' cards that landed since wait for their own click)
+  const clicked = (await card.elementHandle())!;
+  await card.click();
+  await expect.poll(() => clicked.evaluate((el) => el.isConnected), { timeout: 5_000 }).toBe(false);
 
   // the same comparison is in the timeline and the result panel; a correct Reject is red = red
   const mcpReject = page.locator(".calls li:has(.calls-who.r-mcp)");
@@ -199,4 +205,16 @@ test("a card play stays on screen for about five seconds, showing expected vs pl
   const mine = page.locator(".calls li:has(.calls-who.r-client)");
   await expect(mine.locator(".call.miss")).toContainText("mismatch");
   await expect(page.locator(".tl-msg.miss .call")).toContainText("Send to the Application");
+});
+
+test("the host's speed dial changes the speed for the table", async ({ page }) => {
+  await createRoom(page, "Dee");
+  await fillWithSims(page);
+  const dial = page.getByLabel("Game speed");
+  await expect(dial).toHaveValue("2");
+  await expect(page.locator(".speed-dial output")).toHaveText("Slow");
+  await dial.fill("5");
+  await expect(page.locator(".speed-dial output")).toHaveText("Fastest");
+  await page.reload();
+  await expect(page.getByLabel("Game speed")).toHaveValue("5");
 });

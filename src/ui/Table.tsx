@@ -207,7 +207,7 @@ function Game(props: {
     <KeysContext.Provider value={state.keys}>
     <main className="wrap">
       <div className="game">
-        <CardFX round={r} />
+        <CardFX round={r} speed={state.speed} />
         <div className={`stack${myTurn ? " my-turn" : ""}`} style={{ minWidth: 0 }}>
           <Hud room={props.room} state={state} you={you} conn={conn} role={myRoundRole ?? you.role} follow={follow.stacked ? <FollowToggle on={follow.on} toggle={follow.toggle} /> : null} />
           <JumpPill pending={follow.pending} go={follow.go} />
@@ -356,6 +356,8 @@ function Hud({ room, state, you, conn, role, follow }: { room: string; state: Pu
   );
 }
 
+const SPEEDS = ["Slowest", "Slow", "Normal", "Fast", "Fastest"];
+
 function HostControls({ state, send }: { state: PublicState; send: (m: ClientMessage) => void }) {
   const r = state.round;
   const [target, setTarget] = useState(r?.index ?? 0);
@@ -389,6 +391,11 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
         </select>
       </label>
       <button onClick={() => send({ t: "host", action: "goto", round: target })}>Jump</button>
+      <label className="speed-dial">
+        <span>Speed</span>
+        <input type="range" min={1} max={5} step={1} value={state.speed} aria-label="Game speed" aria-valuetext={SPEEDS[state.speed - 1]} onChange={(e) => send({ t: "speed", speed: Number(e.target.value) })} />
+        <output>{SPEEDS[state.speed - 1]}</output>
+      </label>
       <button className="danger end-game" onClick={() => setEnding(true)}>End game</button>
     </section>
   );

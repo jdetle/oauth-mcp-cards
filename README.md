@@ -87,7 +87,7 @@ They are written to sound like good practice:
 
 ## Ready check between rounds
 
-When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If a minute passes with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.
+When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If three minutes pass with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.
 
 ## Follow the action (phones and tablets)
 

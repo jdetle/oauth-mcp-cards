@@ -30,11 +30,13 @@ const outcomeColor = (fx: { verdict: Verdict; call?: Call }) =>
   fx.call ? (fx.call.matched ? TONE[fx.call.played.tone] : MISS) : fx.verdict === "incorrect" ? MISS : fx.verdict === "info" ? "#29f0ff" : "#9b7bff";
 const missed = (fx: { verdict: Verdict; call?: Call }) => (fx.call ? !fx.call.matched : fx.verdict === "incorrect");
 
-const CARD_W = 264;
-const CARD_H = 168;
-/** How long a landed card stays put so the table can read it. Whole play ≈ 5 seconds. */
-const HOLD_MS = 3400;
-const HOLD_CHECK_MS = 1100; // a check is a quick reveal: its result stays on the sealed slip
+const CARD_W = 224;
+const CARD_H = 144;
+// A landed card stays until the player clicks it: nothing is taken away unread.
+// A check is the exception: its result stays on the sealed slip, so its card clears itself.
+const HOLD_CHECK_MS = 2600;
+/** Unread cards kept on the table at once (older ones give way past this). */
+const MAX_UNREAD = 8;
 const COLS = 10;
 const ROWS = 6;
 const CW = CARD_W / COLS;
@@ -61,7 +63,11 @@ function flash(role: Role | null, color: string) {
   );
 }
 
-export function CardFX({ round }: { round: PublicRound | null }) {
+/** How the speed dial (1 slowest to 5 fastest) stretches the card's flight. */
+const FLIGHT = [1.5, 1, 0.75, 0.55, 0.4];
+
+export function CardFX({ round, speed = 2 }: { round: PublicRound | null; speed?: number }) {
+  const pace = FLIGHT[speed - 1] ?? 1;
   const [fx, setFx] = useState<Fx[]>([]);
   const seen = useRef<{ index: number; seq: number } | null>(null);
 
@@ -77,15 +83,15 @@ export function CardFX({ round }: { round: PublicRound | null }) {
     if (!fresh.length) return;
     const to = round.inFlight?.to ?? null;
     setFx((cur) => [
-      ...cur.slice(-2),
+      ...cur.slice(-(MAX_UNREAD - 1)),
       ...fresh.map((l, i) => ({ key: l.seq * 10 + i, role: l.role!, to: l.verdict === "info" ? null : to, text: l.text, verdict: l.verdict, call: l.call })),
     ]);
   }, [round]);
 
   return (
-    <div className="fx-layer" aria-hidden data-testid="fx-layer">
-      {fx.map((f) => (
-        <BitCard key={f.key} fx={f} done={() => setFx((cur) => cur.filter((x) => x.key !== f.key))} />
+    <div className="fx-layer" data-testid="fx-layer">
+      {fx.map((f, i) => (
+        <BitCard key={f.key} fx={f} stack={i} pace={pace} done={() => setFx((cur) => cur.filter((x) => x.key !== f.key))} />
       ))}
     </div>
   );
@@ -95,7 +101,7 @@ function Face({ fx }: { fx: Fx }) {
   return (
     <div className="fx-face">
       <span className="fx-role">{seat(fx.role)}</span>
-      <span className="fx-text">{fx.text.length > 120 ? `${fx.text.slice(0, 118)}…` : fx.text}</span>
+      <span className="fx-text">{fx.text.length > 100 ? `${fx.text.slice(0, 98)}…` : fx.text}</span>
       {fx.call ? (
         <span className="fx-call">
           <i className={`chip t-${fx.call.expected.tone}`}>{fx.call.expected.label.split(" · ")[0]}</i>
@@ -109,7 +115,9 @@ function Face({ fx }: { fx: Fx }) {
   );
 }
 
-function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
+function BitCard({ fx, stack, pace, done }: { fx: Fx; stack: number; pace: number; done: () => void }) {
+  const [landed, setLanded] = useState(false);
+  const read = useRef<() => void>(() => {});
   const mover = useRef<HTMLDivElement>(null);
   const bits = useRef<HTMLDivElement>(null);
   // keep the latest callback without making the animation effect depend on it:
@@ -144,7 +152,7 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
             { transform: `translate(${rnd(-36, 36)}px, ${rnd(-30, 30)}px) scale(0.2)`, opacity: 0 },
             { transform: "translate(0,0) scale(1)", opacity: 1 },
           ],
-          { duration: 320, delay: rnd(0, 160), easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" },
+          { duration: 460 * pace, delay: rnd(0, 220) * pace, easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" },
         ),
       );
     });
@@ -154,7 +162,9 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
     // land above the receiver (not on top of it), kept inside the window
     const clampX = (x: number) => Math.max(CARD_W / 2 + 4, Math.min(layer.width - CARD_W / 2 - 4, x));
     const clampY = (y: number) => Math.max(CARD_H / 2 + 4, Math.min(layer.height - CARD_H / 2 - 4, y));
-    const end = { x: clampX(from.x + dx * travel), y: clampY((travel ? target.y : from.y) + lift) };
+    // unread cards fan out a little so the one underneath still shows
+    const fan = Math.min(stack, 4) * 12;
+    const end = { x: clampX(from.x + dx * travel + fan), y: clampY((travel ? target.y : from.y) + lift + fan) };
     const fly = m.animate(
       [
         { transform: at(from.x, from.y + lift, "perspective(800px) rotateX(18deg)") },
@@ -162,21 +172,25 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
         { transform: at((from.x + end.x) / 2, (from.y + lift + end.y) / 2 - 30, `perspective(800px) rotateY(${lean}deg) rotateZ(${lean / 4}deg)`), offset: 0.65 },
         { transform: at(end.x, end.y, "perspective(800px) rotateY(0deg)") },
       ],
-      { duration: travel ? 1000 : 520, easing: "cubic-bezier(.55,.05,.25,1)", fill: "forwards" },
+      { duration: (travel ? 1500 : 700) * pace, easing: "cubic-bezier(.55,.05,.25,1)", fill: "forwards" },
     );
     anims.push(fly);
 
-    // 3. hold: stay readable, with a countdown bar, then resolve
+    // 3. hold: a played card waits to be clicked; a check counts down and clears itself
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolved = false;
     fly.onfinish = () => {
-      const hold = fx.verdict === "info" ? HOLD_CHECK_MS : HOLD_MS;
+      if (fx.verdict !== "info") return setLanded(true);
       const bar = m.querySelector(".fx-timer") as HTMLElement | null;
-      if (bar) anims.push(bar.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { duration: hold, easing: "linear", fill: "forwards" }));
-      holdTimer = setTimeout(resolve, hold);
+      if (bar) anims.push(bar.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { duration: HOLD_CHECK_MS, easing: "linear", fill: "forwards" }));
+      holdTimer = setTimeout(resolve, HOLD_CHECK_MS);
     };
 
     // 4. resolve
     const resolve = () => {
+      if (resolved) return;
+      resolved = true;
+      setLanded(false);
       m.querySelector(".fx-timer")?.remove();
       let last: Animation | null = null;
       if (missed(fx)) {
@@ -239,10 +253,8 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
       if (last) (last as Animation).onfinish = done;
       else done();
     };
-    // safety net: never leave a card on the board
-    const guard = setTimeout(done, 9000);
+    read.current = resolve;
     return () => {
-      clearTimeout(guard);
       if (holdTimer) clearTimeout(holdTimer);
       anims.forEach((a) => a.cancel());
     };
@@ -250,9 +262,19 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
   }, []);
 
   return (
-    <div ref={mover} className="fx-card" style={{ ["--k" as string]: ROLE_COLOR[fx.role], ["--o" as string]: outcomeColor(fx), ["--fw" as string]: `${CARD_W}px`, ["--fh" as string]: `${CARD_H}px` }}>
-      <span className="fx-timer" />
-      <div ref={bits} className="fx-bits">
+    <div
+      ref={mover}
+      className={`fx-card${landed ? " landed" : ""}`}
+      data-testid="fx-card"
+      role={landed ? "button" : undefined}
+      tabIndex={landed ? 0 : undefined}
+      aria-label={landed ? `${seat(fx.role)}: ${fx.text} Click when you have read it.` : undefined}
+      onClick={landed ? () => read.current() : undefined}
+      onKeyDown={landed ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), read.current()) : undefined}
+      style={{ ["--k" as string]: ROLE_COLOR[fx.role], ["--o" as string]: outcomeColor(fx), ["--fw" as string]: `${CARD_W}px`, ["--fh" as string]: `${CARD_H}px` }}>
+      {fx.verdict === "info" ? <span className="fx-timer" /> : null}
+      {landed ? <span className="fx-read">Click when read</span> : null}
+      <div ref={bits} className="fx-bits" aria-hidden>
         {Array.from({ length: COLS * ROWS }, (_, i) => {
           const col = i % COLS;
           const row = Math.floor(i / COLS);

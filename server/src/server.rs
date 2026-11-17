@@ -304,7 +304,7 @@ impl AppState {
                     rec.version > r.saved && rec.version > r.version.get()
                 };
                 if behind {
-                    if let Ok(game) = crate::store::decode(&rec.game, &self.packs) {
+                    if let Ok(game) = restore_game(&rec.game, &self.packs) {
                         room.lock().unwrap().adopt(game, rec.version);
                         crate::telemetry::event("room.refreshed", json!({ "room": name, "version": rec.version }));
                         drive_sims(room.clone());
@@ -321,7 +321,7 @@ impl AppState {
 
     /// Put a stored room into memory (unless it's already there).
     fn adopt_record(self: &Arc<Self>, rec: crate::store::Record) -> Option<Arc<Mutex<Room>>> {
-        let game = match crate::store::decode(&rec.game, &self.packs) {
+        let game = match restore_game(&rec.game, &self.packs) {
             Ok(g) => g,
             Err(e) => {
                 crate::telemetry::error(&format!("stored room unreadable: {e}"), json!({ "room": rec.room }));
@@ -414,7 +414,7 @@ impl AppState {
                     let st = store.clone();
                     let n = name.clone();
                     if let Ok(Ok(Some(rec))) = tokio::task::spawn_blocking(move || st.get(&n)).await {
-                        if let Ok(game) = crate::store::decode(&rec.game, &self.packs) {
+                        if let Ok(game) = restore_game(&rec.game, &self.packs) {
                             room.lock().unwrap().adopt(game, rec.version);
                             drive_sims(room.clone());
                             drive_ready(room.clone());
@@ -730,9 +730,7 @@ async fn create_room(
         Ok("mcp") => Some(Role::Mcp),
         _ => None,
     };
-    if let Some(ms) = std::env::var("READY_TIMEOUT_MS").ok().and_then(|v| v.parse::<i64>().ok()).filter(|ms| *ms >= 1000) {
-        game.ready_timeout_ms = ms;
-    }
+    game.ready_timeout_ms = ready_timeout_ms();
     let (pref, spectate) = seat_choice(&body.role);
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
@@ -952,6 +950,18 @@ pub fn drive_ready(room: Arc<Mutex<Room>>) {
     });
 }
 
+/// How long a finished round waits for ready clicks (READY_TIMEOUT_MS, default three minutes).
+fn ready_timeout_ms() -> i64 {
+    std::env::var("READY_TIMEOUT_MS").ok().and_then(|v| v.parse::<i64>().ok()).filter(|ms| *ms >= 1000).unwrap_or(180_000)
+}
+
+/// A saved game, with this server's settings: a room saved by an older server picks up the current timer.
+fn restore_game(bytes: &[u8], packs: &crate::pack::Packs) -> Result<Game, String> {
+    let mut game = crate::store::decode(bytes, packs)?;
+    game.ready_timeout_ms = ready_timeout_ms();
+    Ok(game)
+}
+
 /// If a sim is due to act, schedule its move after a human-paced delay
 /// (long enough for the previous card's 3D animation to land). One pending move per room.
 pub fn drive_sims(room: Arc<Mutex<Room>>) {
@@ -967,13 +977,14 @@ pub fn drive_sims(room: Arc<Mutex<Room>>) {
         r.sim_pending = true;
         let identify = r.game.round.as_ref().map(|x| x.status == RoundStatus::Identify).unwrap_or(false);
         let jitter = u64::from(u16::from_le_bytes(random_bytes::<2>()) % 700);
-        // A card play is on screen for about 5s, so a sim waits that out before its first
+        // A played card stays up until each player clicks it, so a sim gives the table about 9s before its first
         // action on a new card. Checks after that are quick reveals, and so is the decision
         // that follows them. SIM_DELAY_MS overrides the pacing (tests run sims fast).
         let quick = r.game.checks_started();
         let delay = match std::env::var("SIM_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
             Some(ms) => Duration::from_millis(ms),
-            None => Duration::from_millis(if identify { 500 + jitter } else if quick { 1500 + jitter } else { 5600 + jitter }),
+            // the host's speed dial stretches or shrinks the wait
+            None => Duration::from_millis(((if identify { 2500 + jitter } else if quick { 3500 + jitter } else { 9000 + jitter }) as f64 * r.game.pace()) as u64),
         };
         (delay, sim, choice)
     };
@@ -1003,6 +1014,7 @@ pub fn parse_client_message(raw: &str) -> Option<ClientMessage> {
     let allowed: &[&str] = match obj.get("t")?.as_str()? {
         "ping" | "stand" | "start" | "tell" | "end" => &["t"],
         "ready" => &["t", "ready"],
+        "speed" => &["t", "speed"],
         "sit" => &["t", "role"],
         "pick" => &["t", "option"],
         "play" => &["t", "cardId"],
@@ -1038,6 +1050,7 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
         ClientMessage::Host { action, round } => g.host_action(player_id, action, round),
         ClientMessage::Ready { ready } => g.set_ready(player_id, ready),
         ClientMessage::Pick { option } => g.pick(player_id, &option),
+        ClientMessage::Speed { speed } => g.set_speed(player_id, speed),
         // handled by the server before it gets here (it closes the room)
         ClientMessage::Ping | ClientMessage::End => Ok(()),
     }

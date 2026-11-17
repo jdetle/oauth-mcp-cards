@@ -1,5 +1,5 @@
 "use client";
-// Between rounds: everyone says they're ready, or the table moves on after a minute idle.
+// Between rounds: everyone says they're ready, or the table moves on after three minutes idle.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClientMessage, PrivateView, PublicState } from "../game/types.ts";
 import { ScrambleSuit } from "./Board.tsx";

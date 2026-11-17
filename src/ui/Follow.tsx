@@ -56,6 +56,8 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
   const [stacked, setStacked] = useState(false);
   const [pending, setPending] = useState<Target | null>(null);
   const lastKey = useRef<string | null>(null);
+  // which scroll is the latest: an older one must not correct the page after a newer one moved it
+  const trip = useRef(0);
 
   useEffect(() => {
     setOn(readPref());
@@ -90,8 +92,9 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
     // The page is often still settling when a turn starts (the hand is dealt, the board moves
     // below it). Measure once more when it has, and correct, unless the reader has taken over.
     const asked = Date.now();
+    const mine = ++trip.current;
     setTimeout(() => {
-      if (lastTouchAt > asked) return;
+      if (lastTouchAt > asked || trip.current !== mine) return;
       const again = where();
       if (again !== null && Math.abs(again - scrollY) > 24) window.scrollTo({ top: again, behavior: calm ? "auto" : "smooth" });
     }, 600);

@@ -83,6 +83,11 @@ pub struct Intrusion {
 
 /// How often a sim makes the right call.
 pub const SIM_SKILL: f64 = 0.85;
+/// Where the speed dial starts: unhurried.
+pub const DEFAULT_SPEED: u8 = 2;
+fn default_speed() -> u8 {
+    DEFAULT_SPEED
+}
 const SIM_NAMES: [&str; 8] = ["Sim Arc", "Sim Bit", "Sim Clu", "Sim Dyn", "Sim Echo", "Sim Flux", "Sim Grid", "Sim Hex"];
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -167,6 +172,9 @@ pub struct Game {
     pub keys: Keys,
     /// how long the table can sit idle after a round before it moves on by itself
     pub ready_timeout_ms: i64,
+    /// the host's speed dial, 1 (slowest) to 5 (fastest): how long sims leave each card on the table
+    #[serde(default = "default_speed")]
+    pub speed: u8,
     /// chance per learning/assessment round that an intruder swaps a token in transit
     pub intruder_rate: f64,
     /// pin whose token the intruder goes after (otherwise chosen at random)
@@ -319,7 +327,8 @@ impl Game {
             started: false,
             round: None,
             archive: vec![],
-            ready_timeout_ms: 60_000,
+            ready_timeout_ms: 180_000,
+            speed: DEFAULT_SPEED,
             intruder_rate: 0.0,
             intruder_target: None,
             keys: Keys { app: new_key_pair(), gateway: new_key_pair(), sigv4_secret: random_hex(20) },
@@ -608,6 +617,27 @@ impl Game {
         Ok(())
     }
 
+    /// Host: turn the speed dial (1 slowest to 5 fastest).
+    pub fn set_speed(&mut self, player_id: &str, speed: u8) -> Result<(), GameError> {
+        self.require_host(player_id)?;
+        if !(1..=5).contains(&speed) {
+            return err("Speed goes from 1 to 5.");
+        }
+        self.speed = speed;
+        Ok(())
+    }
+
+    /// How much longer (or shorter) than the default the sims wait at the current speed.
+    pub fn pace(&self) -> f64 {
+        match self.speed {
+            1 => 1.7,
+            3 => 0.65,
+            4 => 0.4,
+            5 => 0.2,
+            _ => 1.0,
+        }
+    }
+
     pub fn start(&mut self, player_id: &str) -> Result<(), GameError> {
         self.require_host(player_id)?;
         let i = self.round.as_ref().map(|r| r.index).unwrap_or(0);
@@ -868,6 +898,7 @@ impl Game {
         if let Some(r) = self.round.as_mut() {
             let msg = match why {
                 ReadyAdvance::AllReady => "Everyone's ready. On to the next round.".to_string(),
+                ReadyAdvance::Idle if timeout % 60_000 == 0 => format!("No one moved for {} minute{}. On to the next round.", timeout / 60_000, if timeout == 60_000 { "" } else { "s" }),
                 ReadyAdvance::Idle => format!("No one moved for {} seconds. On to the next round.", timeout / 1000),
             };
             Self::log(r, None, &msg, Verdict::Info, None, None);
@@ -2044,6 +2075,7 @@ impl Game {
                 .collect(),
             round,
             host_id: self.host_id.clone(),
+            speed: self.speed,
         }
     }
 

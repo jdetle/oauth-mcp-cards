@@ -2,8 +2,24 @@ import { expect, type Page } from "@playwright/test";
 
 export const PASSWORD = "table-pw";
 
+/** A played card that has landed and is waiting to be clicked. */
+export const unread = (page: Page) => page.locator(".fx-card.landed").first();
+
+/**
+ * A played card stays on the table until it is clicked. Most tests are about something else,
+ * so they read each card the moment it gets in the way. `page.removeLocatorHandler(unread(page))`
+ * turns this off for a test about the cards themselves.
+ */
+export async function readCards(page: Page) {
+  await page.addLocatorHandler(unread(page), async (card) => {
+    // a plain click event: a real click would scroll the card into view and move the page
+    await card.dispatchEvent("click").catch(() => {});
+  }, { noWaitAfter: true });
+}
+
 /** Create a room through the lobby UI and land on the table. Returns the room name. */
 export async function createRoom(page: Page, name = "Tester", seat: string = "Client", game?: string): Promise<string> {
+  await readCards(page);
   await page.goto("./");
   if (game) {
     // another game in the series: pick it first (its seats have their own names)

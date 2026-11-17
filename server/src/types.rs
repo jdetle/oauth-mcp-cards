@@ -883,6 +883,8 @@ pub struct PublicState {
     pub rounds: Vec<RoundSummary>,
     pub round: Option<PublicRound>,
     pub host_id: Option<String>,
+    /// the host's speed dial, 1 (slowest) to 5 (fastest)
+    pub speed: u8,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -927,6 +929,8 @@ pub enum ClientMessage {
     Ready { ready: bool },
     /// scripted games: answer the round's question
     Pick { option: String },
+    /// host only: turn the speed dial, 1 (slowest) to 5 (fastest)
+    Speed { speed: u8 },
     /// host only: end the game now and close the room for everyone
     End,
     Ping,
