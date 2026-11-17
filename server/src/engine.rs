@@ -26,7 +26,7 @@ fn err<T>(m: &str) -> Result<T, GameError> {
     Err(GameError(m.to_string()))
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Player {
     pub id: String,
     pub name: String,
@@ -39,7 +39,7 @@ pub struct Player {
 }
 
 /// What an intruder does to a token in transit: one defect, otherwise a perfect look-alike.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Defect {
     Audience,
     Scope,
@@ -48,7 +48,7 @@ pub enum Defect {
     Subject,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Intrusion {
     /// whose incoming token gets swapped: the Application's or the MCP Server's
     pub target: Role,
@@ -60,7 +60,7 @@ pub struct Intrusion {
 pub const SIM_SKILL: f64 = 0.85;
 const SIM_NAMES: [&str; 8] = ["Sim Arc", "Sim Bit", "Sim Clu", "Sim Dyn", "Sim Echo", "Sim Flux", "Sim Grid", "Sim Hex"];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Move {
     pub player_id: String,
     pub role: Role,
@@ -71,13 +71,13 @@ pub struct Move {
     pub trap: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Held {
     pub key: String,
     pub token: Token,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Round {
     pub index: usize,
     pub beat: usize,
@@ -108,16 +108,18 @@ pub struct Round {
     pub ready_deadline: Option<i64>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Keys {
     pub app: KeyPair,
     pub gateway: KeyPair,
     pub sigv4_secret: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Game {
     pub room: String,
+    /// not persisted: reattached from the scenario files on restore
+    #[serde(skip)]
     pub scenarios: Arc<Vec<Scenario>>,
     pub players: Vec<Player>,
     pub host_id: Option<String>,
@@ -132,8 +134,17 @@ pub struct Game {
     pub intruder_rate: f64,
     /// pin whose token the intruder goes after (otherwise chosen at random)
     pub intruder_target: Option<Role>,
+    #[serde(skip, default = "default_now_fn")]
     now_fn: Arc<dyn Fn() -> i64 + Send + Sync>,
+    #[serde(skip, default = "default_id_fn")]
     id_fn: Arc<dyn Fn() -> String + Send + Sync>,
+}
+
+fn default_now_fn() -> Arc<dyn Fn() -> i64 + Send + Sync> {
+    Arc::new(now_ms)
+}
+fn default_id_fn() -> Arc<dyn Fn() -> String + Send + Sync> {
+    Arc::new(random_id)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

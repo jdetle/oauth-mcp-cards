@@ -142,7 +142,13 @@ pub async fn delete_room(State(state): State<Arc<AppState>>, Path(name): Path<St
     if !valid_room_name(&name) {
         return error(StatusCode::NOT_FOUND, "No such room.");
     }
+    // it may only be in the store (another server has it, or it hasn't been opened since a deploy)
+    let _ = state.fresh_room(&name).await;
     let Some(room) = state.rooms.lock().unwrap().remove(&name) else { return error(StatusCode::NOT_FOUND, "No such room.") };
+    if let Some(store) = state.store.clone() {
+        let n = name.clone();
+        let _ = tokio::task::spawn_blocking(move || store.delete(&n)).await;
+    }
     let mut r = room.lock().unwrap();
     r.closed = true;
     let notice = json!({ "t": "error", "message": "This game was closed by an admin." }).to_string();

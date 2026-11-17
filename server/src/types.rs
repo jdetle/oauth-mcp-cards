@@ -577,7 +577,7 @@ pub struct Sealed {
 }
 
 /// A finished (or replaced) round's log, kept for the game-long timeline.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchivedRound {
     pub index: usize,

@@ -89,6 +89,10 @@ pub struct Room {
     /// telemetry: what has already been reported for this room
     reported_started: std::cell::Cell<bool>,
     reported_rounds: std::cell::Cell<usize>,
+    /// persistence: bumped on every change; `saved` is the version the store has
+    version: std::cell::Cell<u64>,
+    saved: u64,
+    created_ms: i64,
 }
 
 impl Room {
@@ -113,8 +117,48 @@ impl Room {
         }
     }
 
-    /// Send every socket the public state plus its own private view.
+    pub(crate) fn new(game: Game, password_hash: String, created_ms: i64, version: u64) -> Room {
+        let started = game.started;
+        let rounds = game.archive.len();
+        Room {
+            game,
+            password_hash,
+            conns: HashMap::new(),
+            created: Instant::now(),
+            closed: false,
+            last_active: Instant::now(),
+            msg_limiter: HashMap::new(),
+            sim_pending: false,
+            ready_timer: false,
+            // a restored game has already reported what it reached
+            reported_started: std::cell::Cell::new(version > 0 && started),
+            reported_rounds: std::cell::Cell::new(if version > 0 { rounds } else { 0 }),
+            version: std::cell::Cell::new(version.max(1)),
+            saved: version,
+            created_ms,
+        }
+    }
+
+    /// Take the game as stored elsewhere (another server got ahead of us).
+    fn adopt(&mut self, game: Game, version: u64) {
+        self.reported_started.set(game.started);
+        self.reported_rounds.set(game.archive.len());
+        self.game = game;
+        self.version.set(version);
+        self.saved = version;
+        self.sim_pending = false;
+        self.ready_timer = false;
+        self.send_state();
+    }
+
+    /// Something changed: save it and tell everyone.
     fn broadcast(&self) {
+        self.version.set(self.version.get() + 1);
+        self.send_state();
+    }
+
+    /// Send every socket the public state plus its own private view.
+    fn send_state(&self) {
         self.observe();
         let online: std::collections::HashSet<&str> = self.conns.values().map(|c| c.player_id.as_str()).collect();
         let spectators = self.game.players.iter().filter(|p| p.role.is_none() && online.contains(p.id.as_str())).count();
@@ -153,6 +197,9 @@ pub struct Config {
     pub turnstile_secret: Option<String>,
     /// serve everything under this prefix, e.g. "/mcp-oauth" (empty = site root)
     pub base_path: String,
+    /// signs session cookies; must be the same on every server or a deploy logs everyone out
+    pub session_secret: Option<[u8; 32]>,
+    pub store: Option<Arc<dyn crate::store::Backend>>,
 }
 
 /// "/mcp-oauth/" or "mcp-oauth" -> "/mcp-oauth"; "" or "/" -> "".
@@ -190,11 +237,14 @@ pub struct AppState {
     pub secure_cookies: bool,
     pub dev_origin: Option<String>,
     next_conn: AtomicU64,
+    /// where rooms are saved between servers (None: memory only)
+    pub store: Option<Arc<dyn crate::store::Backend>>,
+    store_failing_since: Mutex<Option<Instant>>,
 }
 
 impl AppState {
     pub fn new(scenarios: Vec<Scenario>, cfg: Config) -> Arc<Self> {
-        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret, base_path } = cfg;
+        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret, base_path, session_secret, store } = cfg;
         let turnstile_on = turnstile_site_key.is_some() && turnstile_secret.is_some();
         Arc::new(AppState {
             base_path: normalize_base_path(&base_path),
@@ -204,13 +254,15 @@ impl AppState {
             turnstile_secret: turnstile_secret.filter(|_| turnstile_on),
             scenarios: Arc::new(scenarios),
             rooms: Mutex::new(HashMap::new()),
-            secret: random_bytes::<32>(),
+            secret: session_secret.unwrap_or_else(random_bytes::<32>),
             join_limiter: RateLimiter::new(5, Duration::from_secs(60)),
             create_limiter: RateLimiter::new(10, Duration::from_secs(60)),
             internal_token,
             secure_cookies,
             dev_origin,
             next_conn: AtomicU64::new(1),
+            store,
+            store_failing_since: Mutex::new(None),
         })
     }
 
@@ -221,6 +273,167 @@ impl AppState {
 
     pub(crate) fn room(&self, name: &str) -> Option<Arc<Mutex<Room>>> {
         self.rooms.lock().unwrap().get(name).cloned()
+    }
+
+    /// The room, current as of the store: loaded if this server hasn't got it (a deploy moved
+    /// the game here), refreshed if another server saved a newer version.
+    pub(crate) async fn fresh_room(self: &Arc<Self>, name: &str) -> Option<Arc<Mutex<Room>>> {
+        let have = self.room(name);
+        let Some(store) = self.store.clone() else { return have };
+        let n = name.to_string();
+        let rec = match tokio::task::spawn_blocking(move || store.get(&n)).await {
+            Ok(Ok(rec)) => rec,
+            Ok(Err(e)) => {
+                self.store_failed(&format!("load: {e}"));
+                return have;
+            }
+            Err(_) => return have,
+        };
+        match (have, rec) {
+            (Some(room), Some(rec)) => {
+                let behind = {
+                    let r = room.lock().unwrap();
+                    rec.version > r.saved && rec.version > r.version.get()
+                };
+                if behind {
+                    if let Ok(game) = crate::store::decode(&rec.game, self.scenarios.clone()) {
+                        room.lock().unwrap().adopt(game, rec.version);
+                        crate::telemetry::event("room.refreshed", json!({ "room": name, "version": rec.version }));
+                        drive_sims(room.clone());
+                        drive_ready(room.clone());
+                    }
+                }
+                Some(room)
+            }
+            (Some(room), None) => Some(room),
+            (None, Some(rec)) => self.adopt_record(rec),
+            (None, None) => None,
+        }
+    }
+
+    /// Put a stored room into memory (unless it's already there).
+    fn adopt_record(self: &Arc<Self>, rec: crate::store::Record) -> Option<Arc<Mutex<Room>>> {
+        let game = match crate::store::decode(&rec.game, self.scenarios.clone()) {
+            Ok(g) => g,
+            Err(e) => {
+                crate::telemetry::error(&format!("stored room unreadable: {e}"), json!({ "room": rec.room }));
+                return None;
+            }
+        };
+        let room = {
+            let mut rooms = self.rooms.lock().unwrap();
+            if let Some(r) = rooms.get(&rec.room) {
+                return Some(r.clone());
+            }
+            let mut r = Room::new(game, rec.password_hash, rec.created_ms, rec.version);
+            let idle = (crate::engine::now_ms() - rec.updated_ms).max(0) as u64;
+            r.last_active = Instant::now().checked_sub(Duration::from_millis(idle)).unwrap_or_else(Instant::now);
+            let r = Arc::new(Mutex::new(r));
+            rooms.insert(rec.room.clone(), r.clone());
+            r
+        };
+        crate::telemetry::event("room.restored", json!({ "room": rec.room, "version": rec.version }));
+        drive_sims(room.clone());
+        drive_ready(room.clone());
+        Some(room)
+    }
+
+    /// At startup: every room that was live recently, so the lobby lists them.
+    pub async fn preload(self: &Arc<Self>) {
+        let Some(store) = self.store.clone() else { return };
+        let since = crate::engine::now_ms() - IDLE_TTL.as_millis() as i64;
+        match tokio::task::spawn_blocking(move || store.recent(since)).await {
+            Ok(Ok(recs)) => {
+                let n = recs.len();
+                for rec in recs {
+                    self.adopt_record(rec);
+                }
+                eprintln!("rooms: restored {n} from the store");
+            }
+            Ok(Err(e)) => self.store_failed(&format!("preload: {e}")),
+            Err(_) => {}
+        }
+    }
+
+    /// Report store trouble once, then at most once a minute.
+    fn store_failed(&self, what: &str) {
+        let mut f = self.store_failing_since.lock().unwrap();
+        if f.is_none_or(|t| t.elapsed() > Duration::from_secs(60)) {
+            *f = Some(Instant::now());
+            eprintln!("store: {what}");
+            crate::telemetry::error(&format!("room store failed: {what}"), json!({}));
+        }
+    }
+
+    /// Save every room that changed since its last save. Returns how many were saved.
+    pub async fn save_changed(self: &Arc<Self>) -> usize {
+        let Some(store) = self.store.clone() else { return 0 };
+        let rooms: Vec<(String, Arc<Mutex<Room>>)> = self.rooms.lock().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut saved = 0;
+        for (name, room) in rooms {
+            let job = {
+                let r = room.lock().unwrap();
+                let v = r.version.get();
+                if r.closed || v <= r.saved {
+                    continue;
+                }
+                match crate::store::encode(&r.game) {
+                    Ok(game) => (
+                        crate::store::Record { room: name.clone(), password_hash: r.password_hash.clone(), game, version: v, created_ms: r.created_ms, updated_ms: crate::engine::now_ms() },
+                        r.saved,
+                    ),
+                    Err(e) => {
+                        crate::telemetry::error(&format!("room encode failed: {e}"), json!({ "room": name }));
+                        continue;
+                    }
+                }
+            };
+            let st = store.clone();
+            let (rec, base) = job;
+            let v = rec.version;
+            match tokio::task::spawn_blocking(move || st.put(&rec, base)).await {
+                Ok(Ok(())) => {
+                    let mut r = room.lock().unwrap();
+                    if r.saved < v {
+                        r.saved = v;
+                    }
+                    saved += 1;
+                    *self.store_failing_since.lock().unwrap() = None;
+                }
+                Ok(Err(crate::store::SaveError::Conflict)) => {
+                    // another server is ahead: take its version
+                    crate::telemetry::event("room.save_conflict", json!({ "room": name }));
+                    let st = store.clone();
+                    let n = name.clone();
+                    if let Ok(Ok(Some(rec))) = tokio::task::spawn_blocking(move || st.get(&n)).await {
+                        if let Ok(game) = crate::store::decode(&rec.game, self.scenarios.clone()) {
+                            room.lock().unwrap().adopt(game, rec.version);
+                            drive_sims(room.clone());
+                            drive_ready(room.clone());
+                        }
+                    }
+                }
+                Ok(Err(crate::store::SaveError::Failed(e))) => self.store_failed(&format!("save: {e}")),
+                Err(_) => {}
+            }
+        }
+        saved
+    }
+
+    /// Before this server stops: save everything, then ask every browser to reconnect, which
+    /// lands it on the server that's taking over (it loads the saved game).
+    pub async fn hand_off(self: &Arc<Self>) {
+        let saved = self.save_changed().await;
+        let mut sockets = 0;
+        for room in self.rooms.lock().unwrap().values() {
+            let r = room.lock().unwrap();
+            for c in r.conns.values() {
+                sockets += 1;
+                let _ = c.tx.try_send(Message::Close(Some(CloseFrame { code: 1012, reason: "server restarting".into() })));
+            }
+        }
+        eprintln!("hand-off: saved {saved} rooms, asked {sockets} sockets to reconnect");
+        crate::telemetry::event("server.hand_off", json!({ "saved": saved, "sockets": sockets }));
     }
 
     pub(crate) fn trusted(&self, headers: &HeaderMap) -> bool {
@@ -431,7 +644,7 @@ async fn create_room(
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
         name.clone(),
-        Arc::new(Mutex::new(Room { game, password_hash: hash, conns: HashMap::new(), created: Instant::now(), closed: false, last_active: Instant::now(), msg_limiter: HashMap::new(), sim_pending: false, ready_timer: false, reported_started: Default::default(), reported_rounds: Default::default() })),
+        Arc::new(Mutex::new(Room::new(game, hash, crate::engine::now_ms(), 0))),
     );
     let total = rooms.len();
     drop(rooms);
@@ -450,7 +663,7 @@ async fn join_room(
         return error(StatusCode::NOT_FOUND, "That room doesn't exist (or has closed).");
     }
     let Some(Json(body)) = body else { return error(StatusCode::BAD_REQUEST, "Bad request.") };
-    let Some(room) = state.room(&name) else { return error(StatusCode::NOT_FOUND, "That room doesn't exist (or has closed).") };
+    let Some(room) = state.fresh_room(&name).await else { return error(StatusCode::NOT_FOUND, "That room doesn't exist (or has closed).") };
     // failed attempts are limited per (client IP, room)
     let ip = format!("{}|{name}", client_ip(&headers, &addr));
     let wait = state.join_limiter.blocked(&ip);
@@ -494,7 +707,7 @@ async fn room_history(State(state): State<Arc<AppState>>, Path(name): Path<Strin
     } else {
         None
     };
-    let Some(room) = state.room(&name) else { return error(StatusCode::NOT_FOUND, "That room doesn't exist (or has closed).") };
+    let Some(room) = state.fresh_room(&name).await else { return error(StatusCode::NOT_FOUND, "That room doesn't exist (or has closed).") };
     let r = room.lock().unwrap();
     if !player.is_some_and(|p| r.game.player(&p).is_some()) {
         return error(StatusCode::UNAUTHORIZED, "Not joined.");
@@ -511,7 +724,7 @@ async fn ws_handler(State(state): State<Arc<AppState>>, Path(name): Path<String>
     } else {
         None
     };
-    let room = state.room(&name);
+    let room = if valid_room_name(&name) { state.fresh_room(&name).await } else { None };
     let player = match (player, &room) {
         (Some(p), Some(r)) if r.lock().unwrap().game.player(&p).is_some() => Some(p),
         _ => None,
@@ -716,6 +929,19 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
 }
 
 /// Drop rooms nobody has touched for a while.
+/// Every change gets saved within a quarter of a second.
+pub fn spawn_saver(state: Arc<AppState>) {
+    if state.store.is_none() {
+        return;
+    }
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            state.save_changed().await;
+        }
+    });
+}
+
 pub fn spawn_reaper(state: Arc<AppState>) {
     tokio::spawn(async move {
         loop {
@@ -735,15 +961,20 @@ pub fn spawn_reaper(state: Arc<AppState>) {
                 };
                 crate::telemetry::metric("server.health", json!({ "rooms": rooms, "sockets": sockets, "rooms_playing": playing }), json!({}));
             }
-            let mut dropped = 0;
-            state.rooms.lock().unwrap().retain(|_, r| {
+            let mut gone = Vec::new();
+            state.rooms.lock().unwrap().retain(|name, r| {
                 let r = r.lock().unwrap();
                 let keep = !r.conns.is_empty() || r.last_active.elapsed() < IDLE_TTL;
-                dropped += usize::from(!keep);
+                if !keep {
+                    gone.push(name.clone());
+                }
                 keep
             });
-            if dropped > 0 {
-                crate::telemetry::event("room.expired", json!({ "count": dropped }));
+            if !gone.is_empty() {
+                crate::telemetry::event("room.expired", json!({ "count": gone.len() }));
+                if let Some(store) = state.store.clone() {
+                    let _ = tokio::task::spawn_blocking(move || gone.iter().for_each(|n| { let _ = store.delete(n); })).await;
+                }
             }
         }
     });

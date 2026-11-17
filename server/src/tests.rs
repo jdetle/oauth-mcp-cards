@@ -1024,3 +1024,38 @@ fn telemetry_routes_hide_room_names() {
     assert_eq!(telemetry_route("/ws/amber-otter"), "/ws/:room");
     assert_eq!(telemetry_route("/api/rooms"), "/api/rooms");
 }
+
+/// A game saved mid-round and restored is the same game: same views for everyone, and it
+/// plays on identically. This is what lets a deploy replace the server under a live game.
+#[test]
+fn snapshot_restores_a_game_mid_round() {
+    let mut t = new_game();
+    let host = t.ids[0].clone();
+    t.g.start(&host).unwrap();
+    solve(&mut t.g);
+    t.g.host_action(&host, HostAction::Next, None).unwrap();
+    // part-way through the second round
+    let first = best_card(&t.g);
+    let p = active(&t.g);
+    t.g.play(&p, &first).unwrap();
+
+    let saved = crate::store::encode(&t.g).unwrap();
+    let counter = Arc::new(AtomicU64::new(10_000));
+    let mut back = crate::store::decode(&saved, scenarios()).unwrap().with_clock(|| NOW, move || format!("r{}", counter.fetch_add(1, Ordering::Relaxed)));
+
+    let view = |g: &Game| {
+        let pub_ = serde_json::to_value(g.public_state(&|_| true, 0)).unwrap();
+        let mine: Vec<_> = t.ids.iter().map(|id| serde_json::to_value(g.private_view(id)).unwrap()).collect();
+        (pub_, mine)
+    };
+    assert_eq!(view(&t.g), view(&back));
+    assert_eq!(back.archive.len(), t.g.archive.len());
+
+    // and it plays on
+    while back.round.as_ref().unwrap().status != RoundStatus::Done {
+        let c = best_card(&back);
+        let p = active(&back);
+        back.play(&p, &c).unwrap();
+    }
+    assert!(back.round.as_ref().unwrap().result.as_ref().unwrap().success);
+}

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploy to ECS Fargate: build the image in CodeBuild (no local Docker), push to ECR, roll the service.
 #   AWS_PROFILE=agentcore-bootstrap-source bash deploy/fargate.sh
-# Re-run to ship a new version. Open games are lost on each deploy (state is in memory).
+# Re-run to ship a new version. Live games carry over: the old task saves them to DynamoDB and
+# hands every browser to the new task (see "Games survive deploys" in the README).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -72,6 +73,15 @@ if has_param "$TS_SECRET_PARAM" && has_param "$TS_SITE_PARAM"; then
 else
   EXTRA+=("TurnstileSiteKey=" "TurnstileSecretParam="); echo "    bot check (Turnstile): disabled"
 fi
+
+# Session cookies are signed with one secret shared by every task, so a deploy doesn't sign
+# anyone out. Generated once, here, straight into SSM (never printed).
+SESSION_PARAM="${SESSION_SECRET_PARAM:-/oauth-mcp-cards/session-secret}"
+if ! has_param "$SESSION_PARAM"; then
+  aws ssm put-parameter --name "$SESSION_PARAM" --type SecureString --value "$(openssl rand -hex 32)" >/dev/null
+  echo "    session secret: created in $SESSION_PARAM"
+fi
+EXTRA+=("SessionSecretParam=$SESSION_PARAM")
 
 EDGE_PARAM="${EDGE_KEY_PARAM:-/oauth-mcp-cards/edge-public-key}"
 if has_param "$EDGE_PARAM"; then EXTRA+=("EdgePublicKey=$(aws ssm get-parameter --name "$EDGE_PARAM" --query Parameter.Value --output text)"); echo "    edge-signed visitor addresses: on"; else EXTRA+=("EdgePublicKey="); fi

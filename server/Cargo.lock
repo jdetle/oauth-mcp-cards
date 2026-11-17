@@ -726,7 +726,9 @@ name = "oauth-mcp-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "ed25519-dalek",
+ "flate2",
  "futures-util",
  "hex",
  "hmac",

@@ -111,7 +111,7 @@ Browser ──HTTPS──▶ CloudFront ──▶ ALB ──▶ one Fargate task
 - **Crypto is real:** Ed25519 for JAG assertions and Zero Trust JWTs, the SigV4 HMAC-SHA256 key-derivation chain, and scrypt for room passwords.
 - **Sessions:** joining sets an HMAC-signed, HttpOnly, SameSite=Lax cookie scoped to that room (`Secure` behind HTTPS). Refresh or drop and you reconnect to the same seat. A cookie for one room doesn't open another.
 - **Next.js** is a pure front end (`output: "export"`). `src/game/types.ts` is the wire contract shared with the Rust `types.rs` (a Rust test checks the JSON shape).
-- **State is in memory** for the lifetime of the server process, as the brief specifies. Idle rooms are dropped after 6 hours. Because of this the service runs as exactly one task, and a deploy ends open games.
+- **State is played in memory** and saved to a store on every change (see **Games survive deploys**). Idle rooms are dropped after 6 hours. The service runs as one task; a deploy hands live games to the next one.
 
 ## Run it
 
@@ -219,9 +219,9 @@ AWS_PROFILE=<profile> bun run deploy
 3. Deploys `deploy/app.yaml`: a small VPC (two public subnets, no NAT), an ALB that only accepts traffic from CloudFront's origin-facing prefix list, an ECS cluster, and **one** Fargate task (ARM64, 0.25 vCPU, 512 MB). It runs with `SECURE_COOKIES=1`, behind a CloudFront distribution that provides HTTPS on `*.cloudfront.net`, passes WebSockets through, and caches `/_next/static/*`.
 4. Waits for `/api/health` and prints the URL.
 
-Deploys overlap: the new task starts and passes health checks before the old one stops (with sticky sessions during the overlap), so there is no window where the load balancer has nothing to serve. Open games still end on each deploy, since they live in the old task's memory.
+Deploys overlap: the new task starts and passes health checks before the old one stops (with sticky sessions during the overlap), so there is no window where the load balancer has nothing to serve. Live games carry over: the old task saves them and sends each browser to the new task.
 
-It refuses to run if the credentials aren't for the expected account (`EXPECTED_ACCOUNT`, default `800002328643`). Re-run it to ship a new version. Open games end on each deploy.
+It refuses to run if the credentials aren't for the expected account (`EXPECTED_ACCOUNT`, default `800002328643`). Re-run it to ship a new version; live games carry over.
 
 The identity you deploy with needs CloudFormation plus create rights for IAM roles, ECR, S3, CodeBuild, EC2/VPC, ELB, ECS, Logs and CloudFront. Rough cost at idle: ALB ≈ $16/mo, Fargate task ≈ $7/mo, public IPv4 addresses ≈ $11/mo, CloudFront/CodeBuild/ECR a few cents.
 
@@ -259,3 +259,14 @@ The point is to know when something breaks. Everything reports into the same pro
 
 - The browser never holds the s10 key: it posts to `/_s10/v2/envelopes` on this server, which adds the key. Sentry goes through `/monitoring` (a tunnel that only forwards envelopes for our own DSN). Ad-blockers and CORS can't hide a broken page.
 - IDs are public values but live in SSM (`/oauth-mcp-cards/telemetry`), not in this repo, so forks don't report into these projects. Set them with `bash deploy/telemetry.sh KEY=VALUE …`; `deploy/fargate.sh` passes them to the image build. Server-side settings: `S10_INGEST_KEY`, `S10_INGEST_URL`, `SENTRY_DSN`, `TELEMETRY_ENV`, `RELEASE`.
+
+## Games survive deploys
+
+Rooms are played in the server's memory, but every change is saved (within a quarter of a second) to a store, so no game depends on one server staying up.
+
+- **Store**: DynamoDB in production (`ROOMS_TABLE`, created by `deploy/app.yaml`, pay-per-request, items expire 6 hours after a game goes idle). `ROOMS_DIR` uses a directory instead, for local runs and tests. With neither set, rooms live in memory only.
+- **One record per room**: the game (gzip'd JSON), the room's password hash and a version. A save only lands if the stored version is the one this server last saw, so if two servers ever touch the same game during a deploy's overlap, the one that's behind reloads the newer game instead of overwriting it.
+- **On demand**: any server that's asked about a room it doesn't have (join, socket, history, admin) loads it from the store; on start it also loads every recently active room so the lobby lists them.
+- **Hand-off**: on SIGTERM (ECS stopping the old task) the server saves every room, then closes each socket with code 1012 ("restarting"). Browsers reconnect at once, the load balancer sends them to the new task, and it loads the game. The table doesn't reset, nobody signs in again.
+- **Sessions**: cookies are signed with `SESSION_SECRET` (64 hex chars, in SSM, created once by `deploy/fargate.sh`), the same on every task. Without it each server would make up its own and a deploy would sign everyone out.
+- **Tested**: `e2e/restart.spec.ts` stops the server mid-round with SIGTERM, starts a new one on the same port, and checks the browser comes back to the same round, the same slip on the wire and the same cards, then plays the round to the end.

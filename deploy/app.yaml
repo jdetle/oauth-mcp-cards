@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   OAuth for MCP card game on ECS Fargate. CloudFront (HTTPS) -> ALB (only reachable from CloudFront)
-  -> one Fargate task. Exactly one task, because rooms live in that task's memory.
+  -> one Fargate task. Rooms are played in that task's memory and saved to DynamoDB on every
+  change, so a deploy (or a crash) hands live games to the next task.
 
 Parameters:
   ImageUri:
@@ -29,11 +30,14 @@ Parameters:
     Type: String
     Default: ""
     Description: SSM SecureString parameter name holding the Turnstile secret key
+  SessionSecretParam:
+    Type: String
+    Default: /oauth-mcp-cards/session-secret
+    Description: SSM SecureString (64 hex chars) that signs session cookies; the same for every task so deploys keep people signed in
 
 Conditions:
   HasAdmin: !Not [!Equals [!Ref AdminHashParam, ""]]
   HasTurnstile: !And [!Not [!Equals [!Ref TurnstileSiteKey, ""]], !Not [!Equals [!Ref TurnstileSecretParam, ""]]]
-  HasSecrets: !Or [!Condition HasAdmin, !Condition HasTurnstile]
   HasEdgeKey: !Not [!Equals [!Ref EdgePublicKey, ""]]
 
 Resources:
@@ -139,17 +143,36 @@ Resources:
         Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
       ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
       Policies:
-        - !If
-          - HasSecrets
-          - PolicyName: read-app-secrets
-            PolicyDocument:
-              Statement:
-                - Effect: Allow
-                  Action: ssm:GetParameters
-                  Resource:
-                    - !If [HasAdmin, !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AdminHashParam}", !Ref "AWS::NoValue"]
-                    - !If [HasTurnstile, !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParam}", !Ref "AWS::NoValue"]
-          - !Ref "AWS::NoValue"
+        - PolicyName: read-app-secrets
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameters
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParam}"
+                  - !If [HasAdmin, !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AdminHashParam}", !Ref "AWS::NoValue"]
+                  - !If [HasTurnstile, !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParam}", !Ref "AWS::NoValue"]
+
+  # ---- games outlive any one task: every change is saved here ----
+  RoomsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: room, AttributeType: S }]
+      KeySchema: [{ AttributeName: room, KeyType: HASH }]
+      TimeToLiveSpecification: { AttributeName: expires, Enabled: true }
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: rooms
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:Scan]
+                Resource: !GetAtt RoomsTable.Arn
   TaskDef:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -160,6 +183,7 @@ Resources:
       Memory: "512"
       RuntimePlatform: { CpuArchitecture: ARM64, OperatingSystemFamily: LINUX }
       ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
         - Name: app
           Image: !Ref ImageUri
@@ -170,8 +194,11 @@ Resources:
             - { Name: TRUST_CLOUDFRONT, Value: "1" }
             - !If [HasTurnstile, { Name: TURNSTILE_SITE_KEY, Value: !Ref TurnstileSiteKey }, !Ref "AWS::NoValue"]
             - { Name: BASE_PATH, Value: !Ref BasePath }
+            - { Name: ROOMS_TABLE, Value: !Ref RoomsTable }
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
             - !If [HasEdgeKey, { Name: EDGE_PUBLIC_KEY, Value: !Ref EdgePublicKey }, !Ref "AWS::NoValue"]
           Secrets:
+            - { Name: SESSION_SECRET, ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParam}" }
             - !If
               - HasAdmin
               - { Name: ADMIN_PASSWORD_HASH, ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AdminHashParam}" }
@@ -196,8 +223,8 @@ Resources:
       TaskDefinition: !Ref TaskDef
       # Start the new task before stopping the old one, so a deploy never leaves the load balancer
       # with nothing to send traffic to (that was a 2-minute window of 503s per deploy).
-      # Games live in memory, so open games still end when the old task stops; sticky sessions
-      # keep each browser on one task during the short overlap.
+      # On SIGTERM the old task saves every room and asks each browser to reconnect (close code
+      # 1012); the reconnect lands on the new task, which loads the game from DynamoDB.
       DeploymentConfiguration: { MaximumPercent: 200, MinimumHealthyPercent: 100 }
       HealthCheckGracePeriodSeconds: 30
       NetworkConfiguration:
@@ -248,3 +275,4 @@ Outputs:
   Cluster: { Value: !Ref Cluster }
   Service: { Value: !GetAtt Service.Name }
   LogGroup: { Value: !Ref LogGroup }
+  RoomsTable: { Value: !Ref RoomsTable }

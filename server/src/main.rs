@@ -17,6 +17,8 @@
 //!   S10_INGEST_KEY  s10 ingest key (same project as jdetle.com); S10_INGEST_URL overrides the endpoint
 //!   SENTRY_DSN      Sentry project DSN for server errors and panics; also enables the /monitoring tunnel
 //!   TELEMETRY_ENV   environment tag (default production); RELEASE: version tag
+//!   SESSION_SECRET  64 hex chars that sign session cookies (same on every server, so deploys keep people signed in)
+//!   ROOMS_TABLE     DynamoDB table that keeps games across deploys (or ROOMS_DIR: a directory, for local runs)
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
 //!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~5.6-6.3s, so each card can be read)
 mod admin;
@@ -25,6 +27,7 @@ mod engine;
 mod explain;
 mod scenario;
 mod server;
+mod store;
 mod telemetry;
 mod types;
 mod validate;
@@ -77,21 +80,30 @@ async fn main() {
         turnstile_site_key: env("TURNSTILE_SITE_KEY"),
         turnstile_secret: env("TURNSTILE_SECRET"),
         base_path: env("BASE_PATH").unwrap_or_default(),
+        session_secret: env("SESSION_SECRET").and_then(|h| hex::decode(h.trim()).ok()).and_then(|b| <[u8; 32]>::try_from(b).ok()),
+        store: store::from_env(),
     };
+    if cfg.session_secret.is_none() {
+        eprintln!("note: no SESSION_SECRET (64 hex chars); sessions won't survive a restart");
+    }
+    eprintln!("rooms: {}", cfg.store.as_ref().map_or("memory only (set ROOMS_TABLE or ROOMS_DIR)", |s| s.name()));
     eprintln!(
         "admin: {} · bot check (Turnstile): {}",
         if cfg.admin_hash.is_some() { "enabled" } else { "disabled (set ADMIN_PASSWORD_HASH)" },
         if cfg.turnstile_site_key.is_some() && cfg.turnstile_secret.is_some() { "enabled" } else { "disabled" }
     );
     let state = server::AppState::new(scenarios, cfg);
+    state.preload().await;
     server::spawn_reaper(state.clone());
+    server::spawn_saver(state.clone());
+    let leaving = state.clone();
     let base = state.base_path.clone();
     let app = server::with_base_path(server::router(state, &static_dir), base);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
     eprintln!("listening on http://{addr}{}", server::normalize_base_path(&std::env::var("BASE_PATH").unwrap_or_default()));
     axum::serve(listener, axum::ServiceExt::<axum::extract::Request>::into_make_service_with_connect_info::<SocketAddr>(app))
-        .with_graceful_shutdown(async {
+        .with_graceful_shutdown(async move {
             // ECS stops tasks with SIGTERM; without this the server ignored it and was killed 30s later
             #[cfg(unix)]
             {
@@ -104,6 +116,7 @@ async fn main() {
             #[cfg(not(unix))]
             let _ = tokio::signal::ctrl_c().await;
             eprintln!("shutting down");
+            leaving.hand_off().await;
             telemetry::event("server.stopping", serde_json::json!({}));
             telemetry::flush_blocking();
         })
