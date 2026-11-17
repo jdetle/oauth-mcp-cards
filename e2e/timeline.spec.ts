@@ -35,15 +35,14 @@ test("timeline keeps a timestamped record of every move across rounds, on every 
   await expect(feed.locator(".tl-round")).toHaveCount(2);
   await expect(feed.locator(".tl-msg").first()).toContainText("Send the request to the Application");
 
-  // and it follows you to the other pages as a dock
-  for (const path of ["./learn/", "./reference/", "./"]) {
+  // the other pages stay clean: no overlay; the lobby just offers a way back
+  for (const path of ["./learn/", "./reference/"]) {
     await page.goto(path);
-    const dock = page.locator(".feed-dock");
-    await expect(dock).toContainText(room);
-    await dock.getByRole("button").click();
-    await expect(dock.locator(".tl-round")).toHaveCount(2);
-    await expect(dock.getByRole("link", { name: "Back to the table →" })).toBeVisible();
+    await expect(page.locator(".tl-feed")).toHaveCount(0);
   }
-  await page.locator(".feed-dock").getByRole("link", { name: "Back to the table →" }).click();
+  await page.goto("./");
+  const back = page.locator(".return-to-game");
+  await expect(back).toContainText(room);
+  await back.getByRole("link", { name: "Back to the table →" }).click();
   await expect(page.locator(".board")).toBeVisible();
 });

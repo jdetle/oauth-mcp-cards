@@ -686,11 +686,6 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
 .tl-sys.incorrect { color: var(--red); }
 .timeline.compact .tl-feed.log { max-height: 300px; }
 
-/* the dock that carries the record onto the other pages */
-.feed-dock { position: fixed; right: 14px; bottom: 14px; z-index: 40; width: min(360px, calc(100vw - 28px)); display: grid; gap: 0; }
-.feed-toggle { width: 100%; justify-content: flex-start; display: flex; align-items: center; gap: 8px; min-height: 40px; text-transform: none; letter-spacing: 0.02em; font-family: var(--mono); font-size: 0.78rem; background: rgba(4, 8, 18, 0.96); clip-path: none; }
-.feed-body { display: grid; gap: 10px; padding: 12px; background: rgba(4, 8, 18, 0.97); border: 1px solid var(--line-strong); border-top: 0; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6); }
-.feed-dock.open .feed-toggle { border-bottom-color: transparent; }
 
 /* ---- expected vs played -------------------------------------------------------------------
    Colour = the kind of call (stop red, go green, send cyan). Right or wrong = the sign between. */
@@ -805,3 +800,7 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
 }
 /* the board grows with the text size, so larger text never clips the bottom terminals */
 @media (max-width: 719px) { .board { min-height: max(620px, 36rem); } }
+
+/* lobby: a plain way back to the game you're in */
+.return-to-game { margin: -8px 0 18px; padding: 10px 14px; border-left: 3px solid var(--cyan); background: rgba(41, 240, 255, 0.06); font-size: 0.95rem; }
+.return-to-game a { display: inline-block; padding: 8px 0; font-weight: 600; }

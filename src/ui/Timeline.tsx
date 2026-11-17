@@ -2,9 +2,8 @@
 // The game-long record: every move in every round, timestamped, as a chat-style feed
 // with a tick strip (one tick per move, coloured by outcome) along the top.
 import { href } from "./paths.ts";
-import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ROLE_NAMES, type ArchivedRound, type Call, type Diligence, type LogEntry, type PublicRound, type PublicState, type ServerMessage } from "../game/types.ts";
+import { ROLE_NAMES, type ArchivedRound, type Call, type Diligence, type LogEntry, type PublicRound, type ServerMessage } from "../game/types.ts";
 import { API_BASE, wsUrl } from "./api.ts";
 
 const LAST_ROOM = "omcp:lastRoom";
@@ -166,71 +165,45 @@ export function Timeline({ room, round, compact = false }: { room: string; round
 }
 
 /**
- * On pages other than the table (lobby, explainer, reference): a small dock that shows the
- * live timeline of the room you're in, so the record follows you around the site.
+ * On the lobby: one plain line back to the game you're in, if it still exists. Checks once,
+ * quietly, and forgets the room if you're no longer in it (or it was closed).
  */
-export function FeedDock() {
-  const path = usePathname();
+export function ReturnToGame() {
   const [room, setRoom] = useState<string | null>(null);
-  const [state, setState] = useState<PublicState | null>(null);
-  const [open, setOpen] = useState(false);
-  const hidden = path.startsWith("/play") || path.startsWith("/admin");
-
+  const [round, setRound] = useState<string | null>(null);
   useEffect(() => {
+    let saved: string | null = null;
     try {
-      setRoom(localStorage.getItem(LAST_ROOM));
+      saved = localStorage.getItem(LAST_ROOM);
     } catch {}
-  }, [path]);
-
-  useEffect(() => {
-    if (!room || hidden) return;
-    let stopped = false;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let ws: WebSocket;
-    const connect = () => {
-      ws = new WebSocket(wsUrl(room));
-      ws.onmessage = (e) => {
-        try {
-          const m = JSON.parse(String(e.data)) as ServerMessage;
-          if (m.t === "state") setState(m.state);
-        } catch {}
-      };
-      ws.onclose = (e) => {
-        if (stopped) return;
-        if (e.code === 4401 || e.code === 4410) {
-          // no longer in that room (or it's gone): stop following it
-          rememberRoom(null);
-          setRoom(null);
-          setState(null);
-          return;
+    if (!saved) return;
+    const ws = new WebSocket(wsUrl(saved));
+    const done = setTimeout(() => ws.close(), 4000);
+    ws.onmessage = (e) => {
+      try {
+        const m = JSON.parse(String(e.data)) as ServerMessage;
+        if (m.t === "state") {
+          setRoom(saved);
+          const r = m.state.round;
+          setRound(r ? `round ${r.index + 1}` : "not started");
+          ws.close();
         }
-        retry = setTimeout(connect, 3000);
-      };
+      } catch {}
     };
-    connect();
+    ws.onclose = (e) => {
+      clearTimeout(done);
+      if (e.code === 4401 || e.code === 4410) rememberRoom(null);
+    };
     return () => {
-      stopped = true;
-      if (retry) clearTimeout(retry);
-      ws?.close();
+      clearTimeout(done);
+      ws.close();
     };
-  }, [room, hidden]);
-
-  if (hidden || !room || !state) return null;
-  const r = state.round;
-  const moves = r ? r.log.filter((l) => l.role).length : 0;
+  }, []);
+  if (!room) return null;
   return (
-    <aside className={`feed-dock${open ? " open" : ""}`} aria-label={`Live record of ${room}`}>
-      <button className="feed-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="conn on" aria-hidden /> {room}
-        <span className="muted">{r ? ` · round ${r.index + 1} · ${moves} move${moves === 1 ? "" : "s"}` : " · not started"}</span>
-        <span aria-hidden>{open ? " ▾" : " ▴"}</span>
-      </button>
-      {open ? (
-        <div className="feed-body">
-          <Timeline room={room} round={r} compact />
-          <a href={href(`/play/?room=${encodeURIComponent(room)}`)}>Back to the table →</a>
-        </div>
-      ) : null}
-    </aside>
+    <p className="return-to-game">
+      You&apos;re in a game: <b className="room-name">{room}</b> <span className="muted">· {round}</span>{" "}
+      <a href={href(`/play/?room=${encodeURIComponent(room)}`)}>Back to the table →</a>
+    </p>
   );
 }

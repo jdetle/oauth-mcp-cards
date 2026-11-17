@@ -1,0 +1,4 @@
+- [2026-11-16 iphone-ux](./2026-11-16-iphone-ux.md)
+  - decision: block; on a phone the hand drawer hides the slip you're deciding on, the ready bar hides the result, and iOS zooms on every form field
+  - risk: no phone-sized WebKit tests gate merges beyond layout alignment
+  - followup: [ ] author — fix P0 items (16 px fields, 44 pt targets, phone turn layout, slim ready bar, labels ≥ 12 px) with WebKit assertions

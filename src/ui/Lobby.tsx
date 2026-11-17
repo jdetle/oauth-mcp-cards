@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { listRooms } from "./api.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { TimesTable } from "./Seal.tsx";
+import { ReturnToGame } from "./Timeline.tsx";
 
 export function Lobby() {
   const router = useRouter();
@@ -45,6 +46,7 @@ export function Lobby() {
         </div>
         <TimesTable className="hero-table" />
       </div>
+      <ReturnToGame />
       <div className="lobby">
         <section className="panel stack" aria-labelledby="rooms-h">
           <div className="row" style={{ justifyContent: "space-between" }}>
