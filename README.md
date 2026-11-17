@@ -70,6 +70,10 @@ Warm-ups stay fully visible, so audience, scope and issuer are learned before th
 
 When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If a minute passes with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.
 
+## Follow the action (phones and tablets)
+
+On the stacked layout the page is one long column, so a move can happen off-screen. With **Follow on** (the default, toggled in the header and remembered per device) the page scrolls to whatever just changed: the scenario when a round starts, the flow picker when a guess is needed, the board when someone moves, what's on the wire when it's your turn, and the result when the round ends. It doesn't fight you: if you touched or scrolled in the last couple of seconds it shows a "Jump to…" pill instead. Card effects are anchored to the page rather than the screen, so they stay with their terminal while it scrolls.
+
 ## Timeline
 
 The side panel keeps a timestamped, chat-style record of every move in every round, with a strip of ticks along the top (one per move, coloured by kind of call, taller with a yellow cap for a mismatch). It is the server's record, so it survives reloads, and only people in the room can fetch it. On the lobby, `/learn/` and `/reference/` pages a small dock shows the live timeline of the room you're in.

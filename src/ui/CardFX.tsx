@@ -122,8 +122,12 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
     const grid = bits.current;
     if (!m || !grid) return;
     const cells = Array.from(grid.children) as HTMLElement[];
-    const from = centerOf(`.terminal.r-${fx.role}`) ?? { x: innerWidth / 2, y: innerHeight / 2 };
-    const target = (fx.to && fx.to !== fx.role ? centerOf(`.terminal.r-${fx.to}`) : null) ?? centerOf(".core") ?? from;
+    // Positions are measured against the layer, which is laid over the page (not the screen),
+    // so a card stays with its terminal if the page scrolls while it is in play.
+    const layer = (m.closest(".fx-layer") as HTMLElement).getBoundingClientRect();
+    const local = (p: { x: number; y: number } | null) => (p ? { x: p.x - layer.left, y: p.y - layer.top } : null);
+    const from = local(centerOf(`.terminal.r-${fx.role}`)) ?? { x: layer.width / 2, y: layer.height / 2 };
+    const target = local(fx.to && fx.to !== fx.role ? centerOf(`.terminal.r-${fx.to}`) : null) ?? local(centerOf(".core")) ?? from;
     const lift = -(CARD_H / 2 + 46); // hover just above the terminal, leaving it visible
     const dx = target.x - from.x;
     const lean = Math.max(-18, Math.min(18, dx / 25));
@@ -147,8 +151,8 @@ function BitCard({ fx, done }: { fx: Fx; done: () => void }) {
     // 2. glide to the receiver
     const travel = fx.verdict === "info" ? 0 : 1;
     // land above the receiver (not on top of it), kept inside the window
-    const clampX = (x: number) => Math.max(CARD_W / 2 + 8, Math.min(innerWidth - CARD_W / 2 - 8, x));
-    const clampY = (y: number) => Math.max(CARD_H / 2 + 8, Math.min(innerHeight - CARD_H / 2 - 8, y));
+    const clampX = (x: number) => Math.max(CARD_W / 2 + 4, Math.min(layer.width - CARD_W / 2 - 4, x));
+    const clampY = (y: number) => Math.max(CARD_H / 2 + 4, Math.min(layer.height - CARD_H / 2 - 4, y));
     const end = { x: clampX(from.x + dx * travel), y: clampY((travel ? target.y : from.y) + lift) };
     const fly = m.animate(
       [

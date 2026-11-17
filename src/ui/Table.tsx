@@ -18,6 +18,7 @@ import { wsUrl } from "./api.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
+import { FollowToggle, JumpPill, useFollow } from "./Follow.tsx";
 import { ReadyBar } from "./ReadyBar.tsx";
 import { KeysContext, Seal } from "./Seal.tsx";
 import { CallPair, DiligenceTag, rememberRoom, Timeline } from "./Timeline.tsx";
@@ -143,6 +144,7 @@ function Game(props: {
   const myRoundRole = r ? (ROLES.find((role) => r.seats[role] === you.playerId) ?? null) : null;
   const myTurn = !!r && r.status === "playing" && !!myRoundRole && r.activeRole === myRoundRole;
   const playable = you.hand.filter((c) => you.canPlay.includes(c.id));
+  const follow = useFollow(state, you, myTurn, !!myRoundRole);
   // on phones the hand is a drawer: it opens by itself when it's your turn
   const [handOpen, setHandOpen] = useState(false);
   useEffect(() => setHandOpen(myTurn), [myTurn, r?.index]);
@@ -168,8 +170,10 @@ function Game(props: {
     <KeysContext.Provider value={state.keys}>
     <main className="wrap">
       <div className="game">
+        <CardFX round={r} />
         <div className="stack" style={{ minWidth: 0 }}>
-          <Hud room={props.room} state={state} you={you} conn={conn} role={myRoundRole ?? you.role} />
+          <Hud room={props.room} state={state} you={you} conn={conn} role={myRoundRole ?? you.role} follow={follow.stacked ? <FollowToggle on={follow.on} toggle={follow.toggle} /> : null} />
+          <JumpPill pending={follow.pending} go={follow.go} />
 
           {error ? <div className="error" role="alert">{error}</div> : null}
 
@@ -207,7 +211,6 @@ function Game(props: {
             </section>
           )}
 
-          <CardFX round={r} />
           <Board state={state} youId={you.playerId} myRoundRole={myRoundRole} myTurn={myTurn} onSit={(role) => send({ t: "sit", role })} scores={total} />
 
           {r?.status === "identify" && myRoundRole ? <Identify you={you} choices={r.flowChoices} send={send} /> : null}
@@ -277,7 +280,7 @@ function Game(props: {
 const PHASE_LABEL: Record<string, string> = { warmup: "Warm-up", learning: "Learning", assessment: "Assessment" };
 
 /** One slim bar: where you are, how far through the game, who you are. */
-function Hud({ room, state, you, conn, role }: { room: string; state: PublicState; you: PrivateView; conn: Conn; role: Role | null }) {
+function Hud({ room, state, you, conn, role, follow }: { room: string; state: PublicState; you: PrivateView; conn: Conn; role: Role | null; follow?: React.ReactNode }) {
   const r = state.round;
   const phases = ["warmup", "learning", "assessment"] as const;
   return (
@@ -306,6 +309,7 @@ function Hud({ room, state, you, conn, role }: { room: string; state: PublicStat
         <ScrambleSuit id={you.playerId} size={20} />
         <b>{you.name}</b>
         <span className="role-chip">{role ? ROLE_NAMES[role] : "Spectator"}</span>
+        {follow}
       </div>
     </header>
   );
@@ -338,7 +342,7 @@ function HostControls({ state, send }: { state: PublicState; send: (m: ClientMes
 
 function Identify({ you, choices, send }: { you: PrivateView; choices: Flow[]; send: (m: ClientMessage) => void }) {
   return (
-    <section className="panel stack" aria-labelledby="id-h">
+    <section className="panel stack identify" aria-labelledby="id-h">
       <h2 id="id-h">Which flow does this call for?</h2>
       <p className="muted small" style={{ margin: 0 }}>Your pick is private until the round ends. You can change it until play starts.</p>
       <div className="flow-choices" role="radiogroup">

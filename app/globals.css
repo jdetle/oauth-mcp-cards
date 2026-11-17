@@ -192,7 +192,7 @@ option { background: var(--panel-solid); }
 @media (min-width: 560px) { .form-grid.three { grid-template-columns: 1fr 1fr 1fr; } }
 
 /* ---- game layout ------------------------------------------------------------- */
-.game { display: grid; gap: 16px; grid-template-columns: 1fr; padding-bottom: 90px; }
+.game { position: relative; display: grid; gap: 16px; grid-template-columns: 1fr; padding-bottom: 90px; }
 @media (min-width: 1100px) { .game { grid-template-columns: minmax(0, 1fr) 340px; padding-bottom: 0; } }
 .topbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
 .topbar .title { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -359,7 +359,7 @@ option { background: var(--panel-solid); }
 .hand-panel {
   --c: var(--cyan);
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  background: rgba(4, 8, 18, 0.96);
+  background: #040812; /* opaque: the page must not ghost through the hand */
   border-top: 1px solid var(--c);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.7), 0 -1px 18px color-mix(in srgb, var(--c) 40%, transparent);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
@@ -472,7 +472,7 @@ option { background: var(--panel-solid); }
 }
 
 /* ---- card-play effects: cards made of bits ----------------------------------------- */
-.fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 50; overflow: hidden; }
+.fx-layer { position: absolute; inset: 0; pointer-events: none; z-index: 50; overflow: hidden; }
 .fx-card { --k: var(--cyan); --o: var(--cyan); --fw: 264px; --fh: 168px; position: absolute; left: 0; top: 0; width: var(--fw); height: var(--fh); will-change: transform; }
 /* countdown while the card holds still to be read */
 .fx-timer { position: absolute; left: 0; right: 0; bottom: -7px; height: 3px; background: var(--o); box-shadow: 0 0 10px var(--o); transform-origin: left center; z-index: 2; }
@@ -723,7 +723,7 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
 .ready-bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   display: grid; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  background: rgba(4, 8, 18, 0.97); border-top: 1px solid var(--cyan);
+  background: #040812; border-top: 1px solid var(--cyan);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.7), 0 -1px 18px rgba(41, 240, 255, 0.35);
 }
 @media (min-width: 1100px) { .ready-bar { position: sticky; bottom: 12px; border: 1px solid var(--cyan); } }
@@ -772,3 +772,16 @@ button.danger:hover:not(:disabled) { background: rgba(255, 45, 85, 0.25); box-sh
 .intrusion b { color: var(--magenta); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.74rem; margin-right: 6px; }
 .dil-stats { white-space: nowrap; color: var(--dim); }
 .dil-stats .v { color: var(--cyan); } .dil-stats .u { color: var(--warn); } .dil-stats .b { color: var(--red); }
+
+/* ---- follow the action (stacked layout) -------------------------------------------------- */
+/* where a followed section comes to rest: a little air above it */
+.scenario, .identify, .board, .wire, .result { scroll-margin-top: 10px; }
+.follow-toggle { margin-left: auto; min-height: 30px; padding: 0.15rem 0.6rem; font-size: 0.62rem; clip-path: none; color: var(--muted); border-color: var(--line); }
+.follow-toggle.on { color: var(--cyan); border-color: var(--line-strong); }
+.jump-pill {
+  position: fixed; left: 50%; top: 10px; transform: translateX(-50%); z-index: 60;
+  min-height: 38px; padding: 0.3rem 1rem; clip-path: none; border-radius: 999px;
+  background: var(--cyan); color: #001318; border-color: var(--cyan); font-weight: 800; font-size: 0.74rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6), 0 0 18px rgba(41, 240, 255, 0.6);
+}
+.jump-pill:hover:not(:disabled) { background: #8af8ff; }
