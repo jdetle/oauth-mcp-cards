@@ -1,0 +1,84 @@
+{
+  "id": "cn-w2-election",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: Who Is in Charge?",
+  "text": "The leader has gone quiet. Follower A's election timer runs out.",
+  "held": "One candidate, one vote each, one leader for the term.",
+  "steps": [
+    {
+      "id": "timeout",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Start an election: move to term 4 and ask for votes",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "vote"
+        },
+        {
+          "label": "Keep waiting: the leader is probably busy",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "With no leader nothing can be committed. The timeout exists so that the cluster replaces a leader that has gone."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Silence",
+        "fields": [
+          {
+            "label": "last heartbeat",
+            "value": "2 seconds ago"
+          },
+          {
+            "label": "election timeout",
+            "value": "1 second"
+          }
+        ]
+      }
+    },
+    {
+      "id": "vote",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Vote for A",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Vote for A, and also stand yourself",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "One vote per term. If nodes could back two candidates, two leaders could win the same term."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Vote request",
+        "fields": [
+          {
+            "label": "term",
+            "value": "4"
+          },
+          {
+            "label": "candidate",
+            "value": "Follower A"
+          },
+          {
+            "label": "your vote this term",
+            "value": "not yet cast"
+          }
+        ]
+      }
+    }
+  ]
+}

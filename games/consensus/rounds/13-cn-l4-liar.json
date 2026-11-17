@@ -1,0 +1,117 @@
+{
+  "id": "cn-l4-liar",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: The Liar",
+  "text": "Until now nodes failed by stopping or falling behind. Now one may be sending different things to different nodes.",
+  "held": "This time everyone was told the same story. With three nodes, that is luck, not protection.",
+  "steps": [
+    {
+      "id": "compare",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Acknowledge it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "answer"
+        },
+        {
+          "label": "Refuse it and raise the alarm",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Append entry",
+        "fields": [
+          {
+            "label": "entry",
+            "value": "pay 100 to Rivera"
+          },
+          {
+            "label": "index",
+            "value": "12"
+          },
+          {
+            "label": "what B was sent",
+            "value": "the same entry",
+            "sealed": true,
+            "check": "Compare notes with the other follower",
+            "ok": "B was sent the same entry."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "what B was sent",
+        "value": "pay 900 to Okafor, at the same index",
+        "detail": "B was sent a different entry for index 12.",
+        "correct": "Refuse it and raise the alarm",
+        "why": "One node telling two stories is equivocation. Protocols built for crashes assume it never happens, and break when it does.",
+        "reveal": "The Leader sent two different entries for the same index."
+      },
+      "temptations": [
+        {
+          "label": "Go with whichever version arrived first",
+          "why": "First to arrive differs from node to node. That rule gives each follower a different log."
+        }
+      ]
+    },
+    {
+      "id": "answer",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Accept the result",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Do not accept it",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Result",
+        "fields": [
+          {
+            "label": "answer",
+            "value": "paid"
+          },
+          {
+            "label": "confirmed by",
+            "value": "two nodes, independently",
+            "sealed": true,
+            "check": "Ask a second node to confirm the result",
+            "ok": "A second node reports the same result."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "confirmed by",
+        "value": "only the node that answered",
+        "detail": "No second node confirms it.",
+        "correct": "Do not accept it",
+        "why": "If a node may lie, one node's word proves nothing. You need matching answers from more nodes than could be lying, and the cluster needs 3f + 1 nodes to tolerate f liars.",
+        "reveal": "Only the node that answered could confirm its own result."
+      }
+    }
+  ],
+  "teaches": [
+    "Crash-tolerant consensus (three nodes for one failure) assumes nodes are honest when they speak.",
+    "Tolerating f lying nodes takes 3f + 1 nodes and signed messages. Three nodes cannot survive one liar."
+  ],
+  "discussion": "Which systems you rely on assume honest nodes, and what would have to be true for that assumption to fail?"
+}

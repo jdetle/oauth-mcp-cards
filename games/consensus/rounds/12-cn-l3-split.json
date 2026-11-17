@@ -1,0 +1,116 @@
+{
+  "id": "cn-l3-split",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: The Split",
+  "text": "The network breaks in two. A write arrives at the leader; on the other side, a follower asks for votes.",
+  "held": "Only the side with a majority made promises.",
+  "steps": [
+    {
+      "id": "write",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Replicate it and commit on a majority",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "vote"
+        },
+        {
+          "label": "Refuse the write: there is no majority",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Write request",
+        "fields": [
+          {
+            "label": "write",
+            "value": "z = 1"
+          },
+          {
+            "label": "followers you can reach",
+            "value": "both",
+            "sealed": true,
+            "check": "Count the followers that answer you",
+            "ok": "Both followers answer."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "followers you can reach",
+        "value": "none",
+        "detail": "Neither follower answers. You are alone.",
+        "correct": "Refuse the write: there is no majority",
+        "why": "Alone, the leader can't commit. Saying yes would be a promise the other side is about to overwrite.",
+        "reveal": "The Leader was cut off from both followers when the write arrived."
+      },
+      "temptations": [
+        {
+          "label": "Accept the write locally and merge when the network heals",
+          "why": "That is split brain: two sides each with their own history, and no rule for which one survives."
+        }
+      ]
+    },
+    {
+      "id": "vote",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Vote for B",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the vote",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Vote request",
+        "fields": [
+          {
+            "label": "term",
+            "value": "5"
+          },
+          {
+            "label": "candidate",
+            "value": "Follower B"
+          },
+          {
+            "label": "candidate's log",
+            "value": "as up to date as yours",
+            "sealed": true,
+            "check": "Compare the candidate's last entry with yours",
+            "ok": "Its last entry is as recent as yours."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "candidate's log",
+        "value": "missing the last two committed entries",
+        "detail": "The candidate's log stops two entries short of yours.",
+        "correct": "Refuse the vote",
+        "why": "A leader missing committed entries would erase them. Only a candidate whose log is at least as current may win.",
+        "reveal": "The candidate asking for votes was missing two committed entries."
+      }
+    }
+  ],
+  "teaches": [
+    "Without a majority a node must refuse, however inconvenient. Availability is what is given up to stay consistent.",
+    "Votes go only to candidates whose logs are at least as up to date, so committed entries survive every election."
+  ]
+}

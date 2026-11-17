@@ -101,3 +101,38 @@ test("OAuth game: the MCP Server is offered optional cards that are mistakes", a
   await expect(result(page)).toContainText("Chain broken at MCP Server", { timeout: 20_000 });
   await expect(result(page)).toContainText("played a trap");
 });
+
+// Every game in the series, end to end in the browser: host as a spectator, four sims at the
+// table, one learning round played through. Proves each pack loads, deals, plays and ends.
+const GAMES: [title: string, round: string, seats: string[]][] = [
+  ["Agent Security", "Whose Words Are These?", ["User", "Orchestrator", "Sub-agent", "Tool"]],
+  ["Supply Chain", "Who Built This?", ["Developer", "Build System", "Registry", "Deployer"]],
+  ["Workload Identity", "Prove What You Are", ["Caller", "Mesh Proxy", "Issuer", "Service"]],
+  ["Passkeys", "The Look-Alike", ["User", "Browser", "Authenticator", "Website"]],
+  ["Consensus", "The Leader Who Came Back", ["Client", "Leader", "Follower A", "Follower B"]],
+  ["Zero-Knowledge", "Commit First", ["Prover", "Verifier", "Issuer", "Service"]],
+];
+
+test("the series home offers all seven games", async ({ page }) => {
+  await page.goto("./");
+  await expect(page.getByRole("radio")).toHaveCount(7);
+  await expect(page.getByRole("radio")).toContainText(["OAuth for MCP", ...GAMES.map((g) => g[0])]);
+});
+
+for (const [title, round, seats] of GAMES) {
+  test(`${title}: sims play a learning round to the end`, async ({ page }) => {
+    await createRoom(page, "Host", "Just watch (spectator)", title);
+    await page.getByRole("button", { name: "Fill 4 empty seats with sims" }).click();
+    await expect(page.locator(".terminal .sim-tag")).toHaveCount(4);
+
+    await jumpTo(page, round);
+    // the four seats carry this game's names
+    for (const s of seats) await expect(page.locator(".terminal .t-role", { hasText: new RegExp(`^${s}$`) })).toHaveCount(1);
+    await expect(page.locator(".scenario h2")).toContainText(round);
+    await expect(result(page)).toContainText("Chain unbroken", { timeout: 30_000 });
+    // the result names seats by their game names and lists what the round teaches
+    await expect(result(page).locator(".calls li").first()).toBeVisible();
+    await expect(result(page)).toContainText("What this round teaches");
+    await expect(page.locator(".hud-game")).toHaveText(title);
+  });
+}

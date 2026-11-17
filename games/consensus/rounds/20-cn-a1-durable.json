@@ -1,0 +1,135 @@
+{
+  "id": "cn-a1-durable",
+  "order": 20,
+  "phase": "assessment",
+  "title": "The Fast Acknowledgement",
+  "text": "A follower is acknowledging entries very quickly. The leader is counting those acknowledgements towards commit.",
+  "held": "Every acknowledgement counted stood for a copy on disk.",
+  "steps": [
+    {
+      "id": "count",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Count it and commit on a majority",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "tell"
+        },
+        {
+          "label": "Do not count it yet",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Acknowledged",
+        "fields": [
+          {
+            "label": "index",
+            "value": "20"
+          },
+          {
+            "label": "stored",
+            "value": "written to disk before replying",
+            "sealed": true,
+            "check": "Ask whether it was on disk before the reply",
+            "ok": "On disk before it replied."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "stored",
+        "value": "still in memory when it replied",
+        "detail": "The follower replied before writing to disk.",
+        "correct": "Do not count it yet",
+        "why": "An entry in memory is lost in a crash. Counting it means the majority exists only on paper.",
+        "reveal": "Follower A acknowledged an entry it had not yet written to disk."
+      },
+      "temptations": [
+        {
+          "label": "Commit as soon as you have it yourself",
+          "why": "One copy is not a majority. If you fail now, the entry the client was promised does not exist anywhere else."
+        }
+      ]
+    },
+    {
+      "id": "tell",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Treat it as saved",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Do not treat it as saved",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Result",
+        "fields": [
+          {
+            "label": "write",
+            "value": "balance = 40"
+          },
+          {
+            "label": "committed by",
+            "value": "2 of 3 nodes",
+            "sealed": true,
+            "check": "Ask how many nodes hold it",
+            "ok": "Two of three hold it."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "committed by",
+        "value": "the leader alone",
+        "detail": "Only the leader holds it.",
+        "correct": "Do not treat it as saved",
+        "why": "“Saved” on one machine means saved until that machine fails.",
+        "reveal": "The Leader reported success for a write only it held."
+      }
+    }
+  ],
+  "teaches": [
+    "Acknowledge only what is durable.",
+    "Speed bought by skipping the disk is paid for in lost writes."
+  ],
+  "question": {
+    "text": "Before play: what does a write need before it is safe?",
+    "answer": "b",
+    "why": "All nodes is too strict (one slow node stops everything); the leader alone is too weak (one crash loses it).",
+    "options": [
+      {
+        "id": "a",
+        "label": "Every node has it"
+      },
+      {
+        "id": "b",
+        "label": "A majority has it on disk"
+      },
+      {
+        "id": "c",
+        "label": "The leader has it"
+      },
+      {
+        "id": "d",
+        "label": "The client sent it twice"
+      }
+    ]
+  }
+}

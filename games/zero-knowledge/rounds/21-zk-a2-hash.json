@@ -1,0 +1,145 @@
+{
+  "id": "zk-a2-hash",
+  "order": 21,
+  "phase": "assessment",
+  "title": "No Verifier in the Room",
+  "text": "Proofs are often written once and checked later by anyone, with no live verifier to send a challenge. The challenge has to come from somewhere.",
+  "held": "The prover could not steer the challenge, even though nobody else was there to choose it.",
+  "steps": [
+    {
+      "id": "derive",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Commit, then get the challenge by hashing the statement and the commitment",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "recompute"
+        },
+        {
+          "label": "Choose a convenient challenge, then build a commitment to fit it",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "Working backwards from the challenge forges a proof without the secret. The hash is there to stop exactly that."
+        }
+      ]
+    },
+    {
+      "id": "recompute",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Accept the proof",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "act"
+        },
+        {
+          "label": "Reject the proof",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Stand-alone proof",
+        "fields": [
+          {
+            "label": "equation",
+            "value": "holds for the values given"
+          },
+          {
+            "label": "challenge",
+            "value": "the hash of the statement and the commitment",
+            "sealed": true,
+            "check": "Recompute the challenge yourself",
+            "ok": "Hashing the statement and commitment gives the same challenge."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "challenge",
+        "value": "a value that is not that hash",
+        "detail": "Recomputing the hash gives a different challenge from the one in the proof.",
+        "correct": "Reject the proof",
+        "why": "The numbers fit each other, and the challenge was hand-picked. The verifier recomputes it and never takes the prover's word.",
+        "reveal": "The challenge in the proof was not the hash of the statement and commitment."
+      },
+      "temptations": [
+        {
+          "label": "Use the challenge written in the proof: it saves a hash",
+          "why": "That is letting the prover choose her own question again, one step removed."
+        }
+      ]
+    },
+    {
+      "id": "act",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Act on it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Ask the prover to reveal the secret, to confirm",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "If the proof was checked properly there is nothing left to confirm, and the secret is the one thing she must not hand over."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Verdict",
+        "fields": [
+          {
+            "label": "proof",
+            "value": "accepted"
+          },
+          {
+            "label": "checked by",
+            "value": "recomputing every step"
+          }
+        ]
+      }
+    }
+  ],
+  "teaches": [
+    "With no verifier present, the challenge is a hash of everything the prover has committed to, including the statement.",
+    "The verifier recomputes the challenge. A challenge taken on trust is a challenge the prover chose."
+  ],
+  "question": {
+    "text": "Before play: with no live verifier, where must the challenge come from?",
+    "answer": "a",
+    "why": "Anything the prover can predict or choose before committing lets her work backwards to a forged proof.",
+    "options": [
+      {
+        "id": "a",
+        "label": "A hash of the statement and everything committed so far"
+      },
+      {
+        "id": "b",
+        "label": "The prover's own choice"
+      },
+      {
+        "id": "c",
+        "label": "A fixed, published constant"
+      },
+      {
+        "id": "d",
+        "label": "The challenge used in the previous proof"
+      }
+    ]
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "id": "zk-l4-setup",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: The Ceremony",
+  "text": "Some proof systems need a one-time setup. It produces public keys, and secret randomness that must not survive. Then a proof arrives that verifies perfectly.",
+  "held": "Nobody was left able to forge, and the proof said what it was supposed to say.",
+  "steps": [
+    {
+      "id": "setup",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Publish the proving and verifying keys",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "read"
+        },
+        {
+          "label": "Do not publish: run the setup again",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Setup ceremony",
+        "fields": [
+          {
+            "label": "for",
+            "value": "the over-18 check"
+          },
+          {
+            "label": "leftover randomness",
+            "value": "destroyed; several independent parties took part",
+            "sealed": true,
+            "check": "Check what became of the setup's secret randomness",
+            "ok": "Destroyed. Several independent parties took part, and only one needed to be honest."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "leftover randomness",
+        "value": "kept by one participant",
+        "detail": "One participant still holds the secret randomness.",
+        "correct": "Do not publish: run the setup again",
+        "why": "Whoever holds it can forge proofs that verify. It is called toxic waste for a reason.",
+        "reveal": "One participant in the setup had kept its secret randomness."
+      },
+      "temptations": [
+        {
+          "label": "Reuse the setup from an unrelated project",
+          "why": "A setup belongs to one circuit, and you know nothing about who kept what from someone else's ceremony."
+        }
+      ]
+    },
+    {
+      "id": "read",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Accept the proof",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject the proof",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Proof",
+        "fields": [
+          {
+            "label": "verifies against the keys",
+            "value": "yes"
+          },
+          {
+            "label": "statement proved",
+            "value": "the holder is over 18",
+            "sealed": true,
+            "check": "Read exactly which statement the proof is for",
+            "ok": "The statement is: the holder is over 18."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "statement proved",
+        "value": "the holder knows some number",
+        "detail": "The proof is valid, for a different and trivial statement.",
+        "correct": "Reject the proof",
+        "why": "It verified, and it was about something else. The verifier fixes the statement; the prover doesn't get to choose it.",
+        "reveal": "The proof was valid but proved a different statement."
+      }
+    }
+  ],
+  "teaches": [
+    "Where a setup is needed, its secret leftovers must be destroyed, by people who don't all trust each other.",
+    "“It verifies” is half an answer. The other half is: verifies what?"
+  ]
+}

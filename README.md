@@ -292,3 +292,29 @@ Games are saved outside the server (see above), so the server itself doesn't nee
 - **Wake**: the Cloudflare Worker (`worker/edge.js`) sees the origin answer 502/503/504 without our server's headers and calls the wake function (a Lambda URL that can only set the count back to 1). It rings only for requests that mean someone is here: opening a page, creating or joining a room, a table reconnecting. Page loads get a small "Waking the game server" page that carries on by itself; API calls get `503 {waking}` and the page retries for up to two and a half minutes behind a banner. Waking takes about a minute.
 - **Fewer requests**: the lobby refreshes its room list every 30 s and the admin page every 10 s, both only while the tab is visible; telemetry batches every 10 s; content-hashed assets are served from Cloudflare's edge after the first fetch.
 - **What still costs money while asleep**: the load balancer and its public addresses. The Fargate task, which is the part that scales, costs nothing at zero.
+
+## The series
+
+One server, one table, seven games. Each is a folder under `games/`:
+
+| Game | Seats | Rounds | About |
+|---|---|---|---|
+| OAuth for MCP | Client, Application, Identity Provider, MCP Server | 28 | Which auth flow an MCP server calls for (rules engine: tokens are really validated) |
+| Agent Security | User, Orchestrator, Sub-agent, Tool | 8 | Delegation, the confused deputy, prompt injection |
+| Supply Chain | Developer, Build System, Registry, Deployer | 8 | Provenance, digests, lockfiles, signing, transparency logs |
+| Workload Identity | Caller, Mesh Proxy, Issuer, Service | 8 | Attestation, mutual TLS, short-lived identities, zero trust |
+| Passkeys | User, Browser, Authenticator, Website | 8 | Origin binding, fresh challenges, user verification, recovery |
+| Consensus | Client, Leader, Follower A, Follower B | 8 | Majorities, terms, log matching, splits, and where lying nodes break it |
+| Zero-Knowledge | Prover, Verifier, Issuer, Service | 8 | Commit-challenge-respond, selective disclosure, replay, setup |
+
+Every game except OAuth is **scripted**: each round file spells out who acts, what is on the wire, which values are sealed, which cards are right or wrong and why, what an intruder might swap, and which optional cards are traps. `server/src/script.rs` plays them; the table, sims, ready check, timeline, saved games and phone layout are the same code for all seven.
+
+### Writing a game
+
+Rounds are authored as Python data in `scripts/packs/<name>.py` (helpers in `scripts/packs/lib.py`) and emitted as JSON:
+
+```bash
+python3 scripts/packs/supply_chain.py
+```
+
+The server lints every pack when it starts and refuses to boot on a broken one (a step with no correct card, a wrong card with no explanation, a sealed field with no check, an intrusion on an unsealed field, a `next` that isn't a later step). `cargo test` then plays every pack: the winning line of every round, every wrong card, every intrusion with and without its check, every trap, and a full game of sims.

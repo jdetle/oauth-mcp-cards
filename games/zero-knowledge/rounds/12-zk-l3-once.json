@@ -1,0 +1,116 @@
+{
+  "id": "zk-l3-once",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: Used Once",
+  "text": "A valid proof is just data. Unless it is tied to this verifier and this moment, anyone who has seen one can send it again.",
+  "held": "The proof answered this request, and would be useless anywhere else.",
+  "steps": [
+    {
+      "id": "ask",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Send a fresh nonce and your own name for the proof to include",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "make"
+        },
+        {
+          "label": "Accept any valid proof of the statement",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Then last week's proof, copied, is as good as today's. Whoever holds a copy becomes the prover."
+        }
+      ]
+    },
+    {
+      "id": "make",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Make the proof for this nonce and this verifier",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "check"
+        },
+        {
+          "label": "Send the proof you made for the cinema last week",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "That proof was for another verifier and another moment. If the shop accepts it, so would anyone you ever showed it to."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Request",
+        "fields": [
+          {
+            "label": "nonce",
+            "value": "fresh"
+          },
+          {
+            "label": "for",
+            "value": "wine-shop.example"
+          }
+        ]
+      }
+    },
+    {
+      "id": "check",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Accept the proof",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject the proof",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Proof",
+        "fields": [
+          {
+            "label": "proof",
+            "value": "valid"
+          },
+          {
+            "label": "bound to",
+            "value": "your nonce and your name",
+            "sealed": true,
+            "check": "Check what the proof is bound to",
+            "ok": "Made for your nonce, addressed to you."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "bound to",
+        "value": "another verifier's session, last week",
+        "detail": "The proof was made for a different verifier, days ago.",
+        "correct": "Reject the proof",
+        "why": "A copied proof. It was true when it was made, for the person who made it; it says nothing about who is sending it now.",
+        "reveal": "The proof had been made for a different verifier a week earlier and replayed."
+      }
+    }
+  ],
+  "teaches": [
+    "A proof must include something fresh from this verifier, or it can be replayed.",
+    "Naming the verifier inside the proof stops one verifier reusing it at another."
+  ]
+}

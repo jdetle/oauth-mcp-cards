@@ -1,0 +1,133 @@
+{
+  "id": "zk-l2-disclose",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: Only What Was Asked",
+  "text": "A wine shop needs to know a customer is over 18. The customer holds a digital ID with a name, an address and a date of birth.",
+  "held": "The shop learned one fact. It could not have written down anything else if it wanted to.",
+  "steps": [
+    {
+      "id": "prove",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Prove “over 18” from the ID, revealing nothing else",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "verify"
+        },
+        {
+          "label": "Show the whole ID",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "The shop needed one fact and now holds a name, an address and a birth date it has to protect for ever."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Request",
+        "fields": [
+          {
+            "label": "asks",
+            "value": "Are you over 18?"
+          }
+        ]
+      }
+    },
+    {
+      "id": "verify",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Accept the proof",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "serve"
+        },
+        {
+          "label": "Reject the proof",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Proof",
+        "fields": [
+          {
+            "label": "statement",
+            "value": "the holder is over 18"
+          },
+          {
+            "label": "rests on a credential from",
+            "value": "the national ID issuer",
+            "sealed": true,
+            "check": "Check which issuer's signature the proof rests on",
+            "ok": "A credential signed by the ID issuer you trust."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "rests on a credential from",
+        "value": "an issuer nobody has heard of",
+        "detail": "The underlying credential was signed by an unknown issuer.",
+        "correct": "Reject the proof",
+        "why": "A flawless proof about a credential from a made-up issuer shows only that someone made up an issuer.",
+        "reveal": "The proof rested on a credential from an issuer the Verifier does not trust."
+      },
+      "temptations": [
+        {
+          "label": "Ask for the date of birth too, for your records",
+          "why": "The proof exists so that you don't hold it. Data you never collected can't leak."
+        }
+      ]
+    },
+    {
+      "id": "serve",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Complete the sale",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Complete the sale and note who the customer was",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "There is nothing to note: the proof carried no identity. Trying to attach one rebuilds what it removed."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Verdict",
+        "fields": [
+          {
+            "label": "over 18",
+            "value": "yes"
+          },
+          {
+            "label": "anything else known",
+            "value": "nothing"
+          }
+        ]
+      }
+    }
+  ],
+  "teaches": [
+    "Selective disclosure: prove the one fact, reveal none of the rest.",
+    "A proof is only as good as the credential under it. Check the issuer.",
+    "The safest personal data is the data you never receive."
+  ]
+}

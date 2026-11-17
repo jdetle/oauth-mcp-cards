@@ -1,0 +1,144 @@
+{
+  "id": "zk-l1-order",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: Commit First",
+  "text": "A proof has three moves: the prover commits, the verifier challenges, the prover responds. The order is not a formality.",
+  "held": "She was locked in before she saw the question, and her answer fitted.",
+  "steps": [
+    {
+      "id": "challenge",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Send a random challenge",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "respond"
+        },
+        {
+          "label": "Abort this run",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Commitment",
+        "fields": [
+          {
+            "label": "received",
+            "value": "a sealed commitment"
+          },
+          {
+            "label": "arrived before your challenge",
+            "value": "yes",
+            "sealed": true,
+            "check": "Check the commitment was fixed before you chose a challenge",
+            "ok": "It was fixed before the challenge existed."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "arrived before your challenge",
+        "value": "no: she asked to see the challenge first",
+        "detail": "The prover wants the challenge before committing.",
+        "correct": "Abort this run",
+        "why": "Seeing the challenge first lets her build a commitment that fits it without knowing the secret. Commit, then challenge.",
+        "reveal": "The Prover tried to get the challenge before making her commitment."
+      },
+      "temptations": [
+        {
+          "label": "Let her pick the challenge, to save a message",
+          "why": "A prover who chooses her own question picks one she can answer. The challenge must be out of her hands."
+        }
+      ]
+    },
+    {
+      "id": "respond",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Answer using the secret and your commitment",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "check"
+        },
+        {
+          "label": "Send the secret itself: it's simpler",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "Simpler, and the end of the secret. The response is built so that it reveals nothing by itself."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Challenge",
+        "fields": [
+          {
+            "label": "challenge",
+            "value": "a random number, just chosen"
+          }
+        ]
+      }
+    },
+    {
+      "id": "check",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Accept this round",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Response",
+        "fields": [
+          {
+            "label": "received",
+            "value": "a response to your challenge"
+          },
+          {
+            "label": "fits commitment and challenge",
+            "value": "yes: the equation holds",
+            "sealed": true,
+            "check": "Run the verification equation",
+            "ok": "Commitment, challenge and response fit together."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "fits commitment and challenge",
+        "value": "no: the equation fails",
+        "detail": "The three values do not fit together.",
+        "correct": "Reject",
+        "why": "A response that doesn't fit is what guessing looks like. Accepting it anyway makes the protocol decoration.",
+        "reveal": "The Prover's response did not satisfy the verification equation."
+      }
+    }
+  ],
+  "teaches": [
+    "Commit, challenge, respond: in that order, or the proof proves nothing.",
+    "The challenge must be unpredictable to the prover and chosen after she commits.",
+    "The verifier has to actually run the check."
+  ]
+}

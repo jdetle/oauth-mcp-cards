@@ -1,0 +1,93 @@
+{
+  "id": "zk-w1-cave",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: The Cave",
+  "text": "A cave is a ring with a locked door at the far side. Peggy says she knows the word that opens it. Victor wants proof, and Peggy won't say the word.",
+  "held": "Victor is a little more convinced, and knows nothing about the word.",
+  "steps": [
+    {
+      "id": "enter",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Walk in by a path Victor can't see",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "call"
+        },
+        {
+          "label": "Tell Victor the word so he can try it",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "That proves it, and gives the secret away. The point is to convince him while he learns nothing."
+        }
+      ]
+    },
+    {
+      "id": "call",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Call out a side at random: “come out on the left”",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "emerge"
+        },
+        {
+          "label": "Ask which way she went in, and tell her to come back the same way",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "She can do that without the word. The challenge has to be one she could only meet half the time by luck."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Peggy is inside",
+        "fields": [
+          {
+            "label": "path she took",
+            "value": "unknown to you"
+          }
+        ]
+      }
+    },
+    {
+      "id": "emerge",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Come out on the left, opening the door if you need to",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Come out on whichever side you went in",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Half the time that is the wrong side. Only someone who can open the door can always come out where asked."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Challenge",
+        "fields": [
+          {
+            "label": "come out",
+            "value": "on the left"
+          }
+        ]
+      }
+    }
+  ]
+}

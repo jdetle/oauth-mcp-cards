@@ -1,0 +1,135 @@
+{
+  "id": "cn-a2-two",
+  "order": 21,
+  "phase": "assessment",
+  "title": "Two Leaders",
+  "text": "After a network blip, two nodes each believe they are the leader, and both are sending heartbeats.",
+  "held": "The higher term led; the other noticed and stood down.",
+  "steps": [
+    {
+      "id": "heartbeat",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Follow it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "learn"
+        },
+        {
+          "label": "Reject it and reply with the higher term",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Heartbeat",
+        "fields": [
+          {
+            "label": "from",
+            "value": "a node that says it leads"
+          },
+          {
+            "label": "term",
+            "value": "6, the highest you have seen",
+            "sealed": true,
+            "check": "Compare its term with the highest you have seen",
+            "ok": "Term 6: nothing higher has reached you."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "term",
+        "value": "5, and you have already seen 6",
+        "detail": "This heartbeat is from term 5. You have seen term 6.",
+        "correct": "Reject it and reply with the higher term",
+        "why": "Two nodes may believe they lead, but only one term is the latest. The reply is how the old one finds out.",
+        "reveal": "The heartbeat came from the leader of term 5, after term 6 had begun."
+      }
+    },
+    {
+      "id": "learn",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Carry on leading",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Step down",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Reply to your heartbeat",
+        "fields": [
+          {
+            "label": "from",
+            "value": "Follower B"
+          },
+          {
+            "label": "term in the reply",
+            "value": "6, the same as yours",
+            "sealed": true,
+            "check": "Read the term in the reply",
+            "ok": "Term 6, the same as yours."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "term in the reply",
+        "value": "7, higher than yours",
+        "detail": "The follower is in term 7.",
+        "correct": "Step down",
+        "why": "A leader holds the role only for its own term. Seeing a higher one ends it; there is nothing to argue.",
+        "reveal": "Follower B's reply showed a newer term than the Leader's."
+      },
+      "temptations": [
+        {
+          "label": "Keep leading until an operator decides between you",
+          "why": "Waiting for a person means two leaders in the meantime. The term number is the decision."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "There can be two nodes that think they lead, but only one whose term is current.",
+    "Stepping down on a higher term is automatic. No negotiation, no operator."
+  ],
+  "question": {
+    "text": "Before play: what settles which of two leaders is the real one?",
+    "answer": "a",
+    "why": "Terms only go up, and a majority voted in the newest one. Everything from an older term is refused.",
+    "options": [
+      {
+        "id": "a",
+        "label": "The higher term"
+      },
+      {
+        "id": "b",
+        "label": "Whichever was leader first"
+      },
+      {
+        "id": "c",
+        "label": "The faster machine"
+      },
+      {
+        "id": "d",
+        "label": "Whichever the client prefers"
+      }
+    ]
+  }
+}

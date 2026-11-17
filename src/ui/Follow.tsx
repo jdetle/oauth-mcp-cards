@@ -69,19 +69,32 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
   }, []);
 
   const go = useCallback((t: Target) => {
-    const el = document.querySelector(t.selector);
-    if (!el) return;
     const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let top = el.getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
-    // your move: if the slip and your first card don't both fit, keep the card on screen
-    // (on a short phone the top of the slip gives way, not the thing you have to tap)
-    const card = t.label === "Your move" ? document.querySelector(".hand-panel .card.playable") : null;
-    if (card) {
-      const bottom = card.getBoundingClientRect().bottom + scrollY + 8;
-      if (bottom - top > innerHeight) top = bottom - innerHeight;
-    }
-    window.scrollTo({ top: Math.max(0, top), behavior: calm ? "auto" : "smooth" });
+    const where = (): number | null => {
+      const el = document.querySelector(t.selector);
+      if (!el) return null;
+      let top = el.getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
+      // your move: if the slip and your first card don't both fit, keep the card on screen
+      // (on a short phone the top of the slip gives way, not the thing you have to tap)
+      const card = t.label === "Your move" ? document.querySelector(".hand-panel .card.playable") : null;
+      if (card) {
+        const bottom = card.getBoundingClientRect().bottom + scrollY + 8;
+        if (bottom - top > innerHeight) top = bottom - innerHeight;
+      }
+      return Math.max(0, top);
+    };
+    const first = where();
+    if (first === null) return;
+    window.scrollTo({ top: first, behavior: calm ? "auto" : "smooth" });
     setPending(null);
+    // The page is often still settling when a turn starts (the hand is dealt, the board moves
+    // below it). Measure once more when it has, and correct, unless the reader has taken over.
+    const asked = Date.now();
+    setTimeout(() => {
+      if (lastTouchAt > asked) return;
+      const again = where();
+      if (again !== null && Math.abs(again - scrollY) > 24) window.scrollTo({ top: again, behavior: calm ? "auto" : "smooth" });
+    }, 600);
   }, []);
 
   const target = attention(state, you, myTurn, seated);

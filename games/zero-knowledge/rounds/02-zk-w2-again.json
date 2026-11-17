@@ -1,0 +1,76 @@
+{
+  "id": "zk-w2-again",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: Again",
+  "text": "Peggy came out on the correct side once. A cheater guessing the side in advance would manage that half the time.",
+  "held": "Twenty-one rounds in a row: luck is no longer a serious explanation.",
+  "steps": [
+    {
+      "id": "repeat",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Run it twenty more times, with a new random side each time",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "open"
+        },
+        {
+          "label": "Accept: she got it right",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "One round is a coin toss. Each extra round halves a cheater's chances; one round barely dents them."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "One round passed",
+        "fields": [
+          {
+            "label": "chance a cheater passes one round",
+            "value": "1 in 2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "open",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Let her through",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Ask for the word as well, to be certain",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Asking for the secret undoes the whole exercise. The proof already makes cheating wildly unlikely."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Verdict",
+        "fields": [
+          {
+            "label": "rounds passed",
+            "value": "21 of 21"
+          },
+          {
+            "label": "chance a cheater does that",
+            "value": "about 1 in 2 million"
+          }
+        ]
+      }
+    }
+  ]
+}

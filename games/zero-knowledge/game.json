@@ -1,0 +1,58 @@
+{
+  "id": "zero-knowledge",
+  "order": 7,
+  "title": "Zero-Knowledge",
+  "tagline": "Prove you know a secret, or that you are old enough, without revealing the secret or your age. What makes such a proof convincing, and what quietly breaks it?",
+  "accent": "#5ad1ff",
+  "engine": "scripted",
+  "seats": {
+    "client": {
+      "name": "Prover",
+      "brief": "Knows a secret or holds a credential. Wants to convince without revealing."
+    },
+    "application": {
+      "name": "Verifier",
+      "brief": "Wants to be convinced, and should learn nothing beyond the one fact."
+    },
+    "idp": {
+      "name": "Issuer",
+      "brief": "Signs the credentials proofs rest on, and runs any setup they need."
+    },
+    "mcp": {
+      "name": "Service",
+      "brief": "Acts on the verifier's verdict: opens the door, sells the ticket."
+    }
+  },
+  "teaches": [
+    "A zero-knowledge proof convinces the verifier of one statement and reveals nothing else.",
+    "Order is everything: the prover commits first, and only then meets a challenge she could not predict.",
+    "A proof has to be tied to this verifier and this moment, or it can be copied and replayed.",
+    "A proof can be perfectly valid and still be about the wrong statement, or rest on the wrong issuer."
+  ],
+  "glossary": [
+    {
+      "term": "Commitment",
+      "means": "A value the prover fixes before the challenge. It locks her in without revealing her secret."
+    },
+    {
+      "term": "Challenge",
+      "means": "An unpredictable value from the verifier that the prover must answer."
+    },
+    {
+      "term": "Soundness",
+      "means": "Someone who doesn't know the secret almost never passes."
+    },
+    {
+      "term": "Selective disclosure",
+      "means": "Proving one fact from a credential (over 18) without showing the rest (name, birth date)."
+    },
+    {
+      "term": "Nonce",
+      "means": "A value used once, so that an old proof can't be reused."
+    },
+    {
+      "term": "Trusted setup",
+      "means": "A one-time ceremony some proof systems need. Its leftover randomness must be destroyed, or proofs can be forged."
+    }
+  ]
+}

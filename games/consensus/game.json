@@ -1,0 +1,58 @@
+{
+  "id": "consensus",
+  "order": 6,
+  "title": "Consensus",
+  "tagline": "Three machines keep one log between them, so losing one loses nothing. What has to be true before a write is safe, and who is really in charge?",
+  "accent": "#ff7a59",
+  "engine": "scripted",
+  "seats": {
+    "client": {
+      "name": "Client",
+      "brief": "Sends writes and wants to know when one is truly saved."
+    },
+    "application": {
+      "name": "Leader",
+      "brief": "Takes writes, sends them to the followers, and decides when one is committed."
+    },
+    "idp": {
+      "name": "Follower A",
+      "brief": "Keeps a copy of the log. Votes in elections."
+    },
+    "mcp": {
+      "name": "Follower B",
+      "brief": "Keeps a copy of the log. Votes in elections."
+    }
+  },
+  "teaches": [
+    "A write is safe once a majority has it on disk. Not when the leader has it, and not only when everyone does.",
+    "Terms settle who leads: a higher term always wins, and a leader that sees one steps down.",
+    "A node on the small side of a split must refuse, or the two sides will disagree.",
+    "All of this assumes nodes fail by stopping. A node that lies needs a different, costlier protocol."
+  ],
+  "glossary": [
+    {
+      "term": "Majority",
+      "means": "More than half the nodes: two of three. Any two majorities share a node, which is why they can't disagree."
+    },
+    {
+      "term": "Commit",
+      "means": "The point at which an entry will never be lost or changed, because a majority has stored it."
+    },
+    {
+      "term": "Term",
+      "means": "A numbered period with at most one leader. Every message carries its term."
+    },
+    {
+      "term": "Log matching",
+      "means": "A follower accepts a new entry only if the entry before it matches its own log."
+    },
+    {
+      "term": "Split brain",
+      "means": "Two sides of a broken network each accepting writes, producing two histories."
+    },
+    {
+      "term": "Byzantine fault",
+      "means": "A node that sends wrong or conflicting messages, as opposed to one that stops."
+    }
+  ]
+}

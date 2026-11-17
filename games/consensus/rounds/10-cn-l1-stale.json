@@ -1,0 +1,147 @@
+{
+  "id": "cn-l1-stale",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: The Leader Who Came Back",
+  "text": "A leader was cut off for a while. An election may have happened without it. Messages carry a term number, if anyone compares.",
+  "held": "Every message was from the current term, and everyone checked.",
+  "steps": [
+    {
+      "id": "receive",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Append it and acknowledge",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "reply"
+        },
+        {
+          "label": "Reject it and reply with your term",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Append entry",
+        "fields": [
+          {
+            "label": "entry",
+            "value": "y = 9"
+          },
+          {
+            "label": "term",
+            "value": "4, the same as yours",
+            "sealed": true,
+            "check": "Compare the message's term with your own",
+            "ok": "Term 4, the same as yours."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "term",
+        "value": "3, and yours is 4",
+        "detail": "This message is from term 3. You are in term 4.",
+        "correct": "Reject it and reply with your term",
+        "why": "A message from an old term comes from a leader that has been replaced. Accepting it lets two leaders write to one log.",
+        "reveal": "The entry came from a leader still in term 3, after the cluster had moved to term 4."
+      },
+      "temptations": [
+        {
+          "label": "Accept it: it came from the node you know as leader",
+          "why": "Who led last term says nothing about this one. The term number decides, not familiarity."
+        }
+      ]
+    },
+    {
+      "id": "reply",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Count the acknowledgement",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "saved"
+        },
+        {
+          "label": "Step down: there is a newer term",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Reply to your entry",
+        "fields": [
+          {
+            "label": "result",
+            "value": "acknowledged"
+          },
+          {
+            "label": "reply's term",
+            "value": "4, the same as yours",
+            "sealed": true,
+            "check": "Read the term in the reply",
+            "ok": "Same term as yours. You are still leader."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "reply's term",
+        "value": "5, higher than yours",
+        "detail": "The follower is in term 5. You are in term 4.",
+        "correct": "Step down: there is a newer term",
+        "why": "A higher term anywhere means there was an election you missed. A leader that sees one stops leading at once.",
+        "reveal": "The follower's reply carried term 5: the Leader had been replaced without knowing."
+      }
+    },
+    {
+      "id": "saved",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Treat it as saved",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Treat it as saved only once all 3 confirm",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A majority is the rule. Any later leader must come from a majority, and every majority contains a node that has this entry."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Result",
+        "fields": [
+          {
+            "label": "write",
+            "value": "y = 9"
+          },
+          {
+            "label": "committed by",
+            "value": "2 of 3 nodes"
+          }
+        ]
+      }
+    }
+  ],
+  "teaches": [
+    "Every message carries a term. An older term is refused; a newer one makes you step down.",
+    "A leader doesn't find out it was replaced until it reads a reply."
+  ]
+}

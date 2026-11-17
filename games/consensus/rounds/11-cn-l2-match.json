@@ -1,0 +1,112 @@
+{
+  "id": "cn-l2-match",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: Line Up First",
+  "text": "The leader sends follower B a new entry for index 9. It also says what it believes sits at index 8.",
+  "held": "The new entry went on top of a history both nodes share.",
+  "steps": [
+    {
+      "id": "check",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Append it and acknowledge",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "count"
+        },
+        {
+          "label": "Reject: the logs don't line up",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Append entry",
+        "fields": [
+          {
+            "label": "new entry",
+            "value": "index 9"
+          },
+          {
+            "label": "previous entry",
+            "value": "index 8 from term 4, same as yours",
+            "sealed": true,
+            "check": "Compare the previous entry with your own log",
+            "ok": "Your log has index 8 from term 4. It matches."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "previous entry",
+        "value": "index 8 from term 4, but yours is from term 3",
+        "detail": "Your index 8 is from term 3. The leader's is from term 4.",
+        "correct": "Reject: the logs don't line up",
+        "why": "Building on a different history leaves two logs that disagree at index 8 for good. Reject, and the leader walks back to where you agree.",
+        "reveal": "Follower B's log differed from the leader's at index 8."
+      },
+      "temptations": [
+        {
+          "label": "Append it anyway and sort out index 8 later",
+          "why": "There is no later: once entry 9 sits on the wrong entry 8, the two logs have forked."
+        }
+      ]
+    },
+    {
+      "id": "count",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Commit index 9",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Hold: not enough copies yet",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Acknowledged",
+        "fields": [
+          {
+            "label": "index",
+            "value": "9"
+          },
+          {
+            "label": "on disk at",
+            "value": "you and B: 2 of 3",
+            "sealed": true,
+            "check": "Count which nodes have index 9 on disk",
+            "ok": "Two of three have it."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "on disk at",
+        "value": "only you: B's reply was about index 8",
+        "detail": "B acknowledged index 8, not 9. Only you have index 9.",
+        "correct": "Hold: not enough copies yet",
+        "why": "Committing on one copy means a leader change can erase an entry the client was told is safe.",
+        "reveal": "The acknowledgement the Leader counted was for index 8, not index 9."
+      }
+    }
+  ],
+  "teaches": [
+    "A follower accepts an entry only on top of a matching one. That is what keeps every log a prefix of the same history.",
+    "Commit counts copies of this entry, not replies in general."
+  ]
+}

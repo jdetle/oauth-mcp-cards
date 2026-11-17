@@ -1,0 +1,115 @@
+{
+  "id": "cn-w1-majority",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: Write It Down",
+  "text": "A client asks the leader to save x = 5. There are three nodes.",
+  "held": "Two of three had it on disk before anyone said “saved”.",
+  "steps": [
+    {
+      "id": "append",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Add it to your log and send it to both followers",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "store"
+        },
+        {
+          "label": "Tell the client it is saved straight away",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Only the leader has it. If the leader dies now, the write the client was promised is gone."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Write request",
+        "fields": [
+          {
+            "label": "write",
+            "value": "x = 5"
+          }
+        ]
+      }
+    },
+    {
+      "id": "store",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Write it to disk, then acknowledge",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "commit"
+        },
+        {
+          "label": "Acknowledge now and write it to disk later",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "An acknowledgement is a promise that you have it. A crash before the write breaks the promise the leader counted on."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Append entry",
+        "fields": [
+          {
+            "label": "term",
+            "value": "3"
+          },
+          {
+            "label": "index",
+            "value": "7"
+          },
+          {
+            "label": "entry",
+            "value": "x = 5"
+          }
+        ]
+      }
+    },
+    {
+      "id": "commit",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Commit it and tell the client",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Wait for B as well before committing",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A majority is enough. If every node had to answer, one slow machine would stop the whole system, which is what consensus exists to avoid."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Acknowledged",
+        "fields": [
+          {
+            "label": "index",
+            "value": "7"
+          },
+          {
+            "label": "stored by",
+            "value": "you and A: 2 of 3"
+          }
+        ]
+      }
+    }
+  ]
+}

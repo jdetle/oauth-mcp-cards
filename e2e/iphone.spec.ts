@@ -134,3 +134,21 @@ test.describe("iPhone SE size", () => {
     expect(await page.locator(".wire").evaluate((el) => el.getBoundingClientRect().bottom > 120)).toBe(true);
   });
 });
+
+test("iPhone, a scripted game: the slip and your first card share one screen; nothing tiny", async ({ page }) => {
+  test.setTimeout(90_000);
+  await createRoom(page, "Tia", "Tool", "Agent Security");
+  await fillWithSims(page);
+  const c = await controls(page, ".stack");
+  expect(c.zoom, "fields under 16px").toEqual([]);
+  expect(c.small, "controls under 44pt").toEqual([]);
+  await jumpTo(page, "Whose Words Are These?");
+  await expect(page.locator(".card.playable").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".wire .slip.packet")).toBeVisible();
+  await page.waitForTimeout(1500);
+  if (process.env.GEOM) console.log("GEOM " + JSON.stringify(await page.evaluate(() => Object.fromEntries([".wire", ".wire .slip", ".hand-panel", ".hand-group.must", ".card.playable", ".hand-group.ought"].map((q) => { const r = document.querySelector(q)?.getBoundingClientRect(); return [q, r ? [Math.round(r.top), Math.round(r.bottom)] : null]; })))));
+  expect(await inView(page, ".wire .slip-title"), "the slip you're deciding on").toBe("ok");
+  expect(await inView(page, ".card.playable"), "your first playable card").toBe("ok");
+  expect(await tinyText(page), "text under 12px").toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

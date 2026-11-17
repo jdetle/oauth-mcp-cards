@@ -1,0 +1,135 @@
+{
+  "id": "zk-a1-door",
+  "order": 20,
+  "phase": "assessment",
+  "title": "The Door",
+  "text": "A venue checks ages at the door with a phone app. Requests go to the customer's wallet, and proofs come back.",
+  "held": "One fact was asked for, one fact was given, and it was good for tonight only.",
+  "steps": [
+    {
+      "id": "request",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Prove that one fact",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "check"
+        },
+        {
+          "label": "Decline the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Request from the venue",
+        "fields": [
+          {
+            "label": "purpose",
+            "value": "entry"
+          },
+          {
+            "label": "asks for",
+            "value": "one fact: over 18",
+            "sealed": true,
+            "check": "Read what the request really asks for",
+            "ok": "Only: over 18."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "asks for",
+        "value": "name, address and date of birth",
+        "detail": "The request asks for the full identity, not a fact.",
+        "correct": "Decline the request",
+        "why": "A verifier that asks for everything isn't doing an age check. The wallet's job is to notice.",
+        "reveal": "The venue's request asked for the customer's full identity."
+      }
+    },
+    {
+      "id": "check",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Accept and wave them in",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject the proof",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Proof",
+        "fields": [
+          {
+            "label": "statement",
+            "value": "over 18"
+          },
+          {
+            "label": "made for",
+            "value": "tonight's request",
+            "sealed": true,
+            "check": "Check the nonce in the proof",
+            "ok": "It carries the nonce you sent a moment ago."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "made for",
+        "value": "a request from another night",
+        "detail": "The nonce is not one you sent tonight.",
+        "correct": "Reject the proof",
+        "why": "Someone is showing a proof that was made for somebody else's visit.",
+        "reveal": "The proof carried the nonce of a different night's request."
+      },
+      "temptations": [
+        {
+          "label": "Photograph the customer's screen for the records",
+          "why": "A photo of a proof is a copy of a proof, which is what the nonce exists to make useless. And it is one more thing to leak."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "Wallets should refuse requests that ask for more than the purpose needs.",
+    "Verifiers should refuse proofs that weren't made for them, now."
+  ],
+  "question": {
+    "text": "Before play: what should the venue learn about a customer?",
+    "answer": "a",
+    "why": "Everything beyond the one fact is a liability for the venue and a loss for the customer.",
+    "options": [
+      {
+        "id": "a",
+        "label": "That they are over 18, and nothing else"
+      },
+      {
+        "id": "b",
+        "label": "Their name and date of birth"
+      },
+      {
+        "id": "c",
+        "label": "Their ID number"
+      },
+      {
+        "id": "d",
+        "label": "Their home address"
+      }
+    ]
+  }
+}
