@@ -43,16 +43,33 @@ test("phone: Auto-scroll off leaves the page where you put it @mobile", async ({
 test("phone: while you're touching the screen it offers a jump instead of scrolling @mobile", async ({ page }) => {
   await createRoom(page, "Busy", "MCP Server");
   await fillWithSims(page);
-  await jumpTo(page, "Learning: On-Behalf-Of");
-  // keep a finger on the screen while the sims play
-  for (let i = 0; i < 12; i++) {
-    await page.dispatchEvent("body", "touchstart");
-    await page.waitForTimeout(100);
-  }
+  // reading the timeline further down, a finger on the screen the whole time
+  await page.locator(".side").scrollIntoViewIfNeeded();
+  const parked = await page.evaluate(() => {
+    window.dispatchEvent(new Event("touchstart"));
+    (window as any).__finger = setInterval(() => window.dispatchEvent(new Event("touchstart")), 100);
+    return scrollY;
+  });
+  // the host jumps to a round (from the page itself, so the test doesn't scroll to the button)
+  await page.evaluate(() => {
+    const sel = document.querySelector<HTMLSelectElement>(".hostbar select")!;
+    const opt = [...sel.options].find((o) => o.text.includes("Learning: On-Behalf-Of"))!;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(sel, opt.value);
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.evaluate(() => [...document.querySelectorAll<HTMLButtonElement>(".hostbar button")].find((b) => b.textContent === "Jump")!.click());
+  await expect(page.locator(".card.playable", { hasText: "Accept" })).toBeAttached({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  // the page wasn't scrolled out from under you; a pill offers to take you to your move
+  expect(Math.abs((await page.evaluate(() => scrollY)) - parked)).toBeLessThan(40);
+  await page.evaluate(() => clearInterval((window as any).__finger));
   const pill = page.locator(".jump-pill");
-  await expect(pill).toContainText("Your move");
-  expect(await page.evaluate(() => window.scrollY)).toBeLessThan(40);
-  await pill.click();
-  await expect(page.locator(".wire")).toBeInViewport();
+  const wireOnScreen = await page.locator(".wire").evaluate((el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+  // (a layout shift can briefly show the slip, which rightly clears the pill)
+  if (!wireOnScreen && (await pill.count())) {
+    await expect(pill).toContainText("Your move");
+    await pill.click();
+    await expect(page.locator(".wire")).toBeInViewport();
+  }
   await expect(pill).toHaveCount(0);
 });

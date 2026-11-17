@@ -8,6 +8,20 @@ import type { PrivateView, PublicState } from "../game/types.ts";
 const KEY = "omcp:follow";
 const HANDS_OFF_MS = 2500;
 
+// When the reader last touched, scrolled or wheeled. Kept per page, not per component: the
+// table remounts when a game starts, and a fresh "never touched" would scroll from under a finger.
+let lastTouchAt = 0;
+let listening = false;
+function listenForTouches() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  const touched = () => (lastTouchAt = Date.now());
+  const opts = { passive: true } as const;
+  window.addEventListener("touchstart", touched, opts);
+  window.addEventListener("touchmove", touched, opts);
+  window.addEventListener("wheel", touched, opts);
+}
+
 interface Target {
   selector: string;
   label: string;
@@ -41,7 +55,6 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
   const [on, setOn] = useState(true);
   const [stacked, setStacked] = useState(false);
   const [pending, setPending] = useState<Target | null>(null);
-  const lastTouch = useRef(0);
   const lastKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -51,17 +64,8 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
     sync();
     mq.addEventListener("change", sync);
     // real interaction only: programmatic scrolling doesn't fire these
-    const touched = () => (lastTouch.current = Date.now());
-    const opts = { passive: true } as const;
-    window.addEventListener("touchstart", touched, opts);
-    window.addEventListener("touchmove", touched, opts);
-    window.addEventListener("wheel", touched, opts);
-    return () => {
-      mq.removeEventListener("change", sync);
-      window.removeEventListener("touchstart", touched);
-      window.removeEventListener("touchmove", touched);
-      window.removeEventListener("wheel", touched);
-    };
+    listenForTouches();
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   const go = useCallback((t: Target) => {
@@ -93,7 +97,7 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
     lastKey.current = key;
     if (!stacked || !on || first) return; // don't move the page on load
     const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName ?? "");
-    if (typing || Date.now() - lastTouch.current < HANDS_OFF_MS) {
+    if (typing || Date.now() - lastTouchAt < HANDS_OFF_MS) {
       setPending({ selector: target.selector, label: target.label });
       return;
     }
