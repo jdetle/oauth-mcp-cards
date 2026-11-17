@@ -26,6 +26,7 @@ export function JoinForm({ room, game = "oauth-mcp", seats, onJoined, autoFocus 
   const [seat, setSeat] = useState<SeatChoice>("auto");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [noTimers, setNoTimers] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [botCheck, setBotCheck] = useState(false);
   const [resetKey, setResetKey] = useState(0);
@@ -40,7 +41,7 @@ export function JoinForm({ room, game = "oauth-mcp", seats, onJoined, autoFocus 
     if (password.length < 4) return setError("Password must be at least 4 characters.");
     setBusy(true);
     rememberName(name.trim());
-    const res = room ? await joinRoom(room, password, name.trim(), seat, token) : await createRoom(game, password, name.trim(), seat, token);
+    const res = room ? await joinRoom(room, password, name.trim(), seat, token) : await createRoom(game, password, name.trim(), seat, token, !noTimers);
     setBusy(false);
     if (!res.ok) {
       setResetKey((k) => k + 1); // bot-check tokens are single-use
@@ -62,6 +63,12 @@ export function JoinForm({ room, game = "oauth-mcp", seats, onJoined, autoFocus 
         </label>
         <SeatSelect id={`${idp}-seat`} value={seat} onChange={setSeat} seats={seats} />
       </div>
+      {!room ? (
+        <label className="check-row" htmlFor={`${idp}-slow`}>
+          <input id={`${idp}-slow`} type="checkbox" checked={noTimers} onChange={(e) => setNoTimers(e.target.checked)} />
+          <span><b>No timers.</b> Take it slow: the table only moves on when everyone is ready. Set for the whole game.</span>
+        </label>
+      ) : null}
       <Turnstile onToken={setToken} onRequired={setBotCheck} resetKey={resetKey} />
       {error ? <div className="error" role="alert">{error}</div> : null}
       <div className="row">

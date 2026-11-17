@@ -17,6 +17,8 @@ const COOKIE: &str = "omcp_admin";
 const SESSION_MS: i64 = 8 * 3600 * 1000;
 /// WebSocket close code sent to players when an admin deletes their room.
 pub const CLOSE_DELETED: u16 = 4410;
+/// nobody did anything for a while: the game is saved and the table closed (it can be resumed)
+pub const CLOSE_IDLE: u16 = 4409;
 /// the host ended the game
 pub const CLOSE_ENDED: u16 = 4411;
 

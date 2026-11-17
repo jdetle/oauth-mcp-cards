@@ -22,6 +22,7 @@
 //!   ROOMS_TABLE     DynamoDB table that keeps games across deploys (or ROOMS_DIR: a directory, for local runs)
 //!   IDLE_SLEEP_MIN  after this many minutes with nobody doing anything, scale the ECS service to zero
 //!                   (needs a room store; the edge Worker wakes it). Unset: never sleep
+//!   ROOM_IDLE_SECS    a table nobody touches for this long is saved and closed (default 300; 0 = never)
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
 //!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~9-9.7s, so each card can be read)
 mod admin;
@@ -104,6 +105,7 @@ async fn main() {
     state.preload().await;
     server::spawn_reaper(state.clone());
     server::spawn_saver(state.clone());
+    server::spawn_idle_closer(state.clone());
     let leaving = state.clone();
     let base = state.base_path.clone();
     // old links (the site's previous prefix) are redirected to the new one

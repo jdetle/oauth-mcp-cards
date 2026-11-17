@@ -66,7 +66,7 @@ function flash(role: Role | null, color: string) {
 /** How the speed dial (1 slowest to 5 fastest) stretches the card's flight. */
 const FLIGHT = [1.5, 1, 0.75, 0.55, 0.4];
 
-export function CardFX({ round, speed = 2 }: { round: PublicRound | null; speed?: number }) {
+export function CardFX({ round, speed = 2, timed = true }: { round: PublicRound | null; speed?: number; timed?: boolean }) {
   const pace = FLIGHT[speed - 1] ?? 1;
   const [fx, setFx] = useState<Fx[]>([]);
   const seen = useRef<{ index: number; seq: number } | null>(null);
@@ -91,7 +91,7 @@ export function CardFX({ round, speed = 2 }: { round: PublicRound | null; speed?
   return (
     <div className="fx-layer" data-testid="fx-layer">
       {fx.map((f, i) => (
-        <BitCard key={f.key} fx={f} stack={i} pace={pace} done={() => setFx((cur) => cur.filter((x) => x.key !== f.key))} />
+        <BitCard key={f.key} fx={f} stack={i} pace={pace} timed={timed} done={() => setFx((cur) => cur.filter((x) => x.key !== f.key))} />
       ))}
     </div>
   );
@@ -115,7 +115,9 @@ function Face({ fx }: { fx: Fx }) {
   );
 }
 
-function BitCard({ fx, stack, pace, done }: { fx: Fx; stack: number; pace: number; done: () => void }) {
+function BitCard({ fx, stack, pace, timed, done }: { fx: Fx; stack: number; pace: number; timed: boolean; done: () => void }) {
+  // a check's card clears itself, unless this table has its timers off
+  const waits = fx.verdict !== "info" || !timed;
   const [landed, setLanded] = useState(false);
   const read = useRef<() => void>(() => {});
   const mover = useRef<HTMLDivElement>(null);
@@ -180,7 +182,7 @@ function BitCard({ fx, stack, pace, done }: { fx: Fx; stack: number; pace: numbe
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
     let resolved = false;
     fly.onfinish = () => {
-      if (fx.verdict !== "info") return setLanded(true);
+      if (waits) return setLanded(true);
       const bar = m.querySelector(".fx-timer") as HTMLElement | null;
       if (bar) anims.push(bar.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { duration: HOLD_CHECK_MS, easing: "linear", fill: "forwards" }));
       holdTimer = setTimeout(resolve, HOLD_CHECK_MS);
@@ -272,7 +274,7 @@ function BitCard({ fx, stack, pace, done }: { fx: Fx; stack: number; pace: numbe
       onClick={landed ? () => read.current() : undefined}
       onKeyDown={landed ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), read.current()) : undefined}
       style={{ ["--k" as string]: ROLE_COLOR[fx.role], ["--o" as string]: outcomeColor(fx), ["--fw" as string]: `${CARD_W}px`, ["--fh" as string]: `${CARD_H}px` }}>
-      {fx.verdict === "info" ? <span className="fx-timer" /> : null}
+      {waits ? null : <span className="fx-timer" />}
       {landed ? <span className="fx-read">Click when read</span> : null}
       <div ref={bits} className="fx-bits" aria-hidden>
         {Array.from({ length: COLS * ROWS }, (_, i) => {

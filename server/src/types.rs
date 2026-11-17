@@ -885,6 +885,8 @@ pub struct PublicState {
     pub host_id: Option<String>,
     /// the host's speed dial, 1 (slowest) to 5 (fastest)
     pub speed: u8,
+    /// false = this table was created with its timers off
+    pub timers: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -933,6 +935,8 @@ pub enum ClientMessage {
     Speed { speed: u8 },
     /// host only: end the game now and close the room for everyone
     End,
+    /// "someone is at this screen": keeps a table that is being read or watched from being paused
+    Here,
     Ping,
 }
 

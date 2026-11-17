@@ -68,8 +68,8 @@ export type SeatChoice = Role | "auto" | "spectate";
 
 const seat = (role: SeatChoice) => (role === "auto" ? undefined : role);
 
-export async function createRoom(game: string, password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null) {
-  return post("/api/rooms", { game, password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined });
+export async function createRoom(game: string, password: string, displayName: string, role: SeatChoice, turnstileToken?: string | null, timers = true) {
+  return post("/api/rooms", { game, password, displayName, role: seat(role), turnstileToken: turnstileToken ?? undefined, timers });
 }
 
 /** Every game in the series (static per release; cached by the server for five minutes). */

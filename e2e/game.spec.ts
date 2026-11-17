@@ -182,7 +182,8 @@ test("a played card stays until it is clicked, showing expected vs played", asyn
   await fillWithSims(page);
   await jumpTo(page, "Learning: On-Behalf-Of");
   await playCard(page, "Skip the Application"); // a mismatch
-  const card = page.locator(".fx-card.landed").first();
+  // my card, not one of the sims' that land around it
+  const card = page.locator(".fx-card.landed").filter({ has: page.locator(".fx-read") }).filter({ hasText: "Send to the Application" }).first();
   await expect(card).toBeVisible();
   await expect(card.locator(".fx-call").first()).toContainText("Send to the Application");
   await expect(card.locator(".fx-call").first()).toContainText("≠");

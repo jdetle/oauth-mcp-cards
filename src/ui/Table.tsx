@@ -28,7 +28,7 @@ import { KeysContext, Seal } from "./Seal.tsx";
 import { CallPair, DiligenceTag, rememberRoom, Timeline } from "./Timeline.tsx";
 import { TokenSlip } from "./Slip.tsx";
 
-type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted" | "ended" | "asleep";
+type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted" | "ended" | "asleep" | "paused";
 
 /** WebSocket with automatic reconnect. The session cookie authenticates it; close code 4401 = not joined. */
 function useGame(room: string, attempt: number) {
@@ -60,6 +60,7 @@ function useGame(room: string, attempt: number) {
         if (e.code === 4401) return setConn("unauthorized");
         if (e.code === 4410) return setConn("deleted"); // an admin closed this game
         if (e.code === 4411) return setConn("ended"); // the host ended it
+        if (e.code === 4409) return setConn("paused"); // nobody did anything for five minutes: saved and closed
         if (e.code === 4408) return setConn("asleep"); // idle: the server went to sleep; don't wake it by reconnecting
         setConn("closed");
         retry = setTimeout(connect, backoff);
@@ -84,12 +85,23 @@ function useGame(room: string, attempt: number) {
       };
     };
     connect();
+    // tell the server someone is at this screen (at most twice a minute), so a table that is
+    // being read or watched isn't paused as idle
+    let saidHere = 0;
+    const here = () => {
+      if (Date.now() - saidHere < 30_000 || sock.current?.readyState !== WebSocket.OPEN) return;
+      saidHere = Date.now();
+      sock.current.send(JSON.stringify({ t: "here" }));
+    };
+    const opts = { passive: true } as const;
+    for (const ev of ["pointerdown", "keydown", "wheel", "touchmove"]) window.addEventListener(ev, here, opts);
     const ping = setInterval(() => sock.current?.readyState === WebSocket.OPEN && sock.current.send(JSON.stringify({ t: "ping" })), 25_000);
     return () => {
       stopped = true;
       if (retry) clearTimeout(retry);
       if (watchdog) clearTimeout(watchdog);
       clearInterval(ping);
+      for (const ev of ["pointerdown", "keydown", "wheel", "touchmove"]) window.removeEventListener(ev, here);
       sock.current?.close();
     };
   }, [room, attempt]);
@@ -119,6 +131,21 @@ export function Table({ room }: { room: string }) {
           <h1 className="room-name">{room}</h1>
           <p>{g.conn === "ended" ? "The host ended this game. The room is closed." : "This game was closed by an admin."}</p>
           <a href={href("/")}>← Back to the lobby</a>
+        </section>
+      </main>
+    );
+  }
+  if (g.conn === "paused") {
+    return (
+      <main className="wrap stack">
+        <section className="panel stack">
+          <p className="kicker">Paused</p>
+          <h1 className="room-name">{room}</h1>
+          <p>Nobody did anything for five minutes, so the table was closed. The game is saved exactly where you left it.</p>
+          <div className="row">
+            <button className="primary" autoFocus onClick={() => setAttempt((a) => a + 1)}>Resume the game</button>
+            <a href={href("/")}>← Back to the lobby</a>
+          </div>
         </section>
       </main>
     );
@@ -207,7 +234,7 @@ function Game(props: {
     <KeysContext.Provider value={state.keys}>
     <main className="wrap">
       <div className="game">
-        <CardFX round={r} speed={state.speed} />
+        <CardFX round={r} speed={state.speed} timed={state.timers} />
         <div className={`stack${myTurn ? " my-turn" : ""}`} style={{ minWidth: 0 }}>
           <Hud room={props.room} state={state} you={you} conn={conn} role={myRoundRole ?? you.role} follow={follow.stacked ? <FollowToggle on={follow.on} toggle={follow.toggle} /> : null} />
           <JumpPill pending={follow.pending} go={follow.go} />

@@ -89,6 +89,10 @@ They are written to sound like good practice:
 
 When a round ends, every human at the table gets an **I'm ready** button and sees who is ready and who the table is waiting on. The next round starts as soon as every connected human is ready. If three minutes pass with no ready clicks, the table moves on by itself; any click (ready or "not yet") restarts that minute. Sims and spectators aren't asked, people who have disconnected aren't waited for, and with no humans connected the game pauses. The host can still skip the wait. `READY_TIMEOUT_MS` changes the minute.
 
+**Pace.** A played card stays on the table until you click it, so nothing is taken away unread (a check's card clears itself: its result stays on the slip). The host has a **speed dial** (Slowest to Fastest) that sets how long the sims leave each card up. A room can be created with **No timers**: its rounds wait until everyone is ready, however long that takes, and that choice holds for the whole game.
+
+**Idle tables.** If nobody at a table does anything for five minutes (`ROOM_IDLE_SECS`, default 300; `0` = never), the table is closed with a "Paused" screen and a **Resume the game** button. The game is already saved, and resumes exactly where it was. This applies with or without timers.
+
 ## Follow the action (phones and tablets)
 
 On the stacked layout the page is one long column, so a move can happen off-screen. With **Auto-scroll on** (the default, toggled in the header and remembered per device) the page scrolls to whatever just changed: the scenario when a round starts, the flow picker when a guess is needed, the board when someone moves, what's on the wire when it's your turn (on a short screen it keeps your first card in view, letting the top of the slip give way), and the result when the round ends. It doesn't fight you: if you touched or scrolled in the last couple of seconds it shows a "Jump to…" pill instead. Card effects are anchored to the page rather than the screen, so they stay with their terminal while it scrolls.

@@ -88,6 +88,9 @@ pub const DEFAULT_SPEED: u8 = 2;
 fn default_speed() -> u8 {
     DEFAULT_SPEED
 }
+fn default_timers() -> bool {
+    true
+}
 const SIM_NAMES: [&str; 8] = ["Sim Arc", "Sim Bit", "Sim Clu", "Sim Dyn", "Sim Echo", "Sim Flux", "Sim Grid", "Sim Hex"];
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -175,6 +178,9 @@ pub struct Game {
     /// the host's speed dial, 1 (slowest) to 5 (fastest): how long sims leave each card on the table
     #[serde(default = "default_speed")]
     pub speed: u8,
+    /// chosen when the room is created: false = the table never moves on by itself
+    #[serde(default = "default_timers")]
+    pub timers: bool,
     /// chance per learning/assessment round that an intruder swaps a token in transit
     pub intruder_rate: f64,
     /// pin whose token the intruder goes after (otherwise chosen at random)
@@ -329,6 +335,7 @@ impl Game {
             archive: vec![],
             ready_timeout_ms: 180_000,
             speed: DEFAULT_SPEED,
+            timers: true,
             intruder_rate: 0.0,
             intruder_target: None,
             keys: Keys { app: new_key_pair(), gateway: new_key_pair(), sigv4_secret: random_hex(20) },
@@ -889,7 +896,13 @@ impl Game {
         if here.iter().all(|id| r.ready.contains(id)) {
             return Some(ReadyAdvance::AllReady);
         }
-        (self.now() >= deadline).then_some(ReadyAdvance::Idle)
+        // a table that turned its timers off waits for everyone, however long that takes
+        (self.timers && self.now() >= deadline).then_some(ReadyAdvance::Idle)
+    }
+
+    /// When the ready check needs looking at again by itself (never, with the timers off).
+    pub fn ready_wake(&self) -> Option<i64> {
+        self.round.as_ref().and_then(|r| r.ready_deadline).filter(|_| self.timers)
     }
 
     /// Move to the next round (seats rotate), as the host's Next would.
@@ -2076,6 +2089,7 @@ impl Game {
             round,
             host_id: self.host_id.clone(),
             speed: self.speed,
+            timers: self.timers,
         }
     }
 

@@ -80,6 +80,8 @@ pub struct Room {
     /// set when an admin deletes the room: sockets stop accepting moves
     pub(crate) closed: bool,
     pub last_active: Instant,
+    /// when a person last did something here (joined, connected, moved, touched the screen)
+    pub(crate) last_human: Instant,
     msg_limiter: HashMap<u64, VecDeque<Instant>>,
     /// a sim move is already scheduled for this room
     sim_pending: bool,
@@ -126,6 +128,7 @@ impl Room {
             created: Instant::now(),
             closed: false,
             last_active: Instant::now(),
+            last_human: Instant::now(),
             msg_limiter: HashMap::new(),
             sim_pending: false,
             ready_timer: false,
@@ -450,6 +453,36 @@ impl AppState {
         Some(conns)
     }
 
+    /// Tables where no person has done anything for `limit`: close their sockets (4409). The game
+    /// is already saved (the saver keeps up with every change). The room stays listed and resumes exactly where it was.
+    /// Returns how many tables were closed.
+    pub fn pause_idle_tables(self: &Arc<Self>, limit: Duration) -> usize {
+        let idle: Vec<(String, Arc<Mutex<Room>>)> = {
+            let rooms = self.rooms.lock().unwrap();
+            rooms
+                .iter()
+                .filter(|(_, r)| {
+                    let r = r.lock().unwrap();
+                    !r.closed && !r.conns.is_empty() && r.last_human.elapsed() >= limit
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        };
+        // nothing to save here: every change was saved within a quarter of a second of being made
+        let mut closed = 0;
+        for (name, room) in idle {
+            let r = room.lock().unwrap();
+            let msg = json!({ "t": "error", "message": "Paused: nobody did anything for a while. The game is saved." }).to_string();
+            for c in r.conns.values() {
+                let _ = c.tx.try_send(Message::Text(msg.clone().into()));
+                let _ = c.tx.try_send(Message::Close(Some(CloseFrame { code: crate::admin::CLOSE_IDLE, reason: "idle".into() })));
+            }
+            crate::telemetry::event("room.paused", json!({ "room": name, "sockets": r.conns.len(), "idle_s": r.last_human.elapsed().as_secs() }));
+            closed += 1;
+        }
+        closed
+    }
+
     /// Someone did something: the idle clock starts again.
     pub(crate) fn touch(&self) {
         *self.last_activity.lock().unwrap() = Instant::now();
@@ -621,6 +654,8 @@ pub struct JoinBody {
     display_name: Option<String>,
     role: Option<String>,
     turnstile_token: Option<String>,
+    /// create only: false turns the table's timers off (default: on)
+    timers: Option<bool>,
 }
 
 fn seat_choice(role: &Option<String>) -> (Option<Role>, bool) {
@@ -731,6 +766,7 @@ async fn create_room(
         _ => None,
     };
     game.ready_timeout_ms = ready_timeout_ms();
+    game.timers = body.timers.unwrap_or(true);
     let (pref, spectate) = seat_choice(&body.role);
     let player = game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     rooms.insert(
@@ -783,6 +819,7 @@ async fn join_room(
     let (pref, spectate) = seat_choice(&body.role);
     let player = r.game.add_player(body.display_name.as_deref().unwrap_or("Player"), pref, spectate);
     r.last_active = Instant::now();
+    r.last_human = Instant::now();
     r.broadcast();
     let seated = r.game.players.len();
     drop(r);
@@ -843,6 +880,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
         let mut r = room.lock().unwrap();
         r.conns.insert(conn_id, Conn { player_id: player_id.clone(), tx: tx.clone() });
         r.last_active = Instant::now();
+        r.last_human = Instant::now();
         r.broadcast();
     }
     drive_ready(room.clone());
@@ -883,6 +921,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
             send_one(&tx, ServerMessage::Pong);
             continue;
         }
+        if parsed == ClientMessage::Here {
+            r.last_human = Instant::now();
+            continue;
+        }
         if parsed == ClientMessage::End {
             // the host ends the game early: the room closes for everyone and isn't kept
             if r.game.host_id.as_deref() != Some(player_id.as_str()) {
@@ -895,6 +937,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
         match apply(&mut r.game, &player_id, parsed) {
             Ok(()) => {
                 r.last_active = Instant::now();
+                r.last_human = Instant::now();
                 r.broadcast();
                 drop(r);
                 state.touch();
@@ -936,7 +979,7 @@ pub fn drive_ready(room: Arc<Mutex<Room>>) {
             drive_sims(room.clone());
             return;
         }
-        let Some(deadline) = r.game.round.as_ref().and_then(|x| x.ready_deadline) else { return };
+        let Some(deadline) = r.game.ready_wake() else { return };
         if r.ready_timer {
             return;
         }
@@ -1012,7 +1055,7 @@ pub fn parse_client_message(raw: &str) -> Option<ClientMessage> {
     let v: serde_json::Value = serde_json::from_str(raw).ok()?;
     let obj = v.as_object()?;
     let allowed: &[&str] = match obj.get("t")?.as_str()? {
-        "ping" | "stand" | "start" | "tell" | "end" => &["t"],
+        "ping" | "stand" | "start" | "tell" | "end" | "here" => &["t"],
         "ready" => &["t", "ready"],
         "speed" => &["t", "speed"],
         "sit" => &["t", "role"],
@@ -1052,7 +1095,7 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
         ClientMessage::Pick { option } => g.pick(player_id, &option),
         ClientMessage::Speed { speed } => g.set_speed(player_id, speed),
         // handled by the server before it gets here (it closes the room)
-        ClientMessage::Ping | ClientMessage::End => Ok(()),
+        ClientMessage::Ping | ClientMessage::End | ClientMessage::Here => Ok(()),
     }
 }
 
@@ -1066,6 +1109,22 @@ pub fn spawn_saver(state: Arc<AppState>) {
         loop {
             tokio::time::sleep(Duration::from_millis(250)).await;
             state.save_changed().await;
+        }
+    });
+}
+
+/// Save and close tables nobody has touched for five minutes (ROOM_IDLE_SECS; 0 = never).
+pub fn spawn_idle_closer(state: Arc<AppState>) {
+    let secs = std::env::var("ROOM_IDLE_SECS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(300);
+    if secs == 0 {
+        return;
+    }
+    let limit = Duration::from_secs(secs);
+    let every = Duration::from_secs((secs / 10).clamp(1, 20));
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(every).await;
+            state.pause_idle_tables(limit);
         }
     });
 }

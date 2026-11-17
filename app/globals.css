@@ -560,6 +560,8 @@ option { background: var(--panel-solid); }
 .hostbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 4px; }
 .hostbar-label { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.24em; text-transform: uppercase; color: var(--amber); border-left: 2px solid var(--amber); padding-left: 8px; margin-right: 4px; }
 .hostbar button { min-height: 36px; padding: 0.35rem 0.85rem; font-size: 0.72rem; }
+.check-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem; line-height: 1.4; min-height: 44px; }
+.check-row input { width: 20px; height: 20px; min-height: 0; flex: 0 0 auto; margin: 2px 0 0; padding: 0; accent-color: var(--cyan); }
 .speed-dial { display: flex; align-items: center; gap: 8px; font: 0.72rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
 .speed-dial input { width: 110px; min-height: 36px; padding: 0; accent-color: var(--amber); }
 .speed-dial output { min-width: 4.6em; color: var(--amber); }

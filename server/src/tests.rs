@@ -712,6 +712,25 @@ fn the_host_turns_the_speed_dial_and_it_survives_a_save() {
 }
 
 #[test]
+fn a_table_with_its_timers_off_waits_for_everyone() {
+    let (mut g, clock, a, b) = ready_game();
+    g.timers = false;
+    let online = |_: &str| true;
+    assert_eq!(g.ready_wake(), None, "nothing to wake up for");
+    clock.store(NOW + 60 * 60_000, Ordering::Relaxed);
+    assert_eq!(g.ready_outcome(&online), None, "an hour later it is still waiting");
+    assert!(!g.public_state(&|_| true, 0).timers);
+    g.set_ready(&a, true).unwrap();
+    assert_eq!(g.ready_outcome(&online), None);
+    g.set_ready(&b, true).unwrap();
+    assert_eq!(g.ready_outcome(&online), Some(ReadyAdvance::AllReady));
+    // the choice is saved with the room; rooms saved before it existed keep their timers
+    let back = crate::store::decode(&crate::store::encode(&g).unwrap(), &packs()).unwrap();
+    assert!(!back.timers);
+    assert_eq!(parse_client_message(r#"{"t":"here"}"#), Some(ClientMessage::Here));
+}
+
+#[test]
 fn three_minutes_of_inactivity_moves_on_and_each_click_restarts_it() {
     let (g0, clock, a, _b) = ready_game();
     let mut g = g0;

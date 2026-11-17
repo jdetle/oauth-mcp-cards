@@ -377,6 +377,8 @@ export interface PublicState {
   hostId: string | null;
   /** the host's speed dial, 1 (slowest) to 5 (fastest) */
   speed: number;
+  /** false = this table was created with its timers off */
+  timers: boolean;
 }
 
 export interface PrivateView {
@@ -404,6 +406,7 @@ export type ClientMessage =
   | { t: "host"; action: "next" | "replay" | "goto" | "forceReveal" | "addBots" | "removeBots"; round?: number }
   | { t: "pick"; option: string } // scripted games: answer the round's question
   | { t: "speed"; speed: number } // host only: 1 (slowest) to 5 (fastest)
+  | { t: "here" } // someone is at this screen (keeps a table being read from pausing)
   | { t: "end" } // host only: end the game now and close the room for everyone
   | { t: "ready"; ready: boolean }
   | { t: "ping" };

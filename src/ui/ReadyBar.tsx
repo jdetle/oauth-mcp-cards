@@ -1,5 +1,6 @@
 "use client";
-// Between rounds: everyone says they're ready, or the table moves on after three minutes idle.
+// Between rounds: everyone says they're ready, or the table moves on after three minutes idle
+// (never, at a table created with its timers off).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClientMessage, PrivateView, PublicState } from "../game/types.ts";
 import { ScrambleSuit } from "./Board.tsx";
@@ -44,15 +45,15 @@ export function ReadyBar({ state, you, send }: { state: PublicState; you: Privat
             <span className="who">{rc.ready.length} of {here} ready {open ? "▾" : "▴"}</span>
           </button>
           <span className="muted small">
-            {rc.waiting.length === 0 && here > 0 ? "Everyone's ready…" : `Starts when everyone's ready, or after ${Math.round(rc.timeoutMs / 1000)} seconds with no clicks.`}
+            {rc.waiting.length === 0 && here > 0 ? "Everyone's ready…" : !state.timers ? "No timer: starts when everyone's ready." : `Starts when everyone's ready, or after ${mmss(rc.timeoutMs)} with no clicks.`}
           </span>
         </div>
-        <div className="ready-timer" role="timer" aria-live="off" aria-label={`Moves on by itself in ${mmss(left)}`}>
+        {!state.timers ? null : <div className="ready-timer" role="timer" aria-live="off" aria-label={`Moves on by itself in ${mmss(left)}`}>
           <span className="ready-clock">{mmss(left)}</span>
           <span className="ready-track" aria-hidden>
             <span style={{ transform: `scaleX(${Math.min(1, left / rc.timeoutMs)})` }} />
           </span>
-        </div>
+        </div>}
         {mine ? (
           amReady ? (
             <button className="ghost" onClick={() => send({ t: "ready", ready: false })}>Not yet</button>
