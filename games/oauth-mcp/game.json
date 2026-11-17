@@ -1,0 +1,24 @@
+{
+  "id": "oauth-mcp",
+  "order": 1,
+  "title": "OAuth for MCP",
+  "tagline": "Which auth flow does an MCP server call for? Pass token slips, make the right call at your seat, keep the chain unbroken.",
+  "accent": "#29f0ff",
+  "engine": "rules",
+  "seats": {
+    "client": { "name": "Client", "brief": "Holds the user's token and starts the request." },
+    "application": { "name": "Application", "brief": "The gateway in the middle: decides how to reach the MCP server." },
+    "idp": { "name": "Identity Provider", "brief": "Mints tokens, and only within what the user consented to." },
+    "mcp": { "name": "MCP Server", "brief": "Receives the call and decides whether to trust it." }
+  },
+  "teaches": [
+    "A token is addressed to one audience; forwarding it across a trust boundary is the classic mistake.",
+    "Which flow fits depends on whether a user is present and whom the server trusts.",
+    "Nothing forces a receiver to check a token. Every check skipped is a way in."
+  ],
+  "glossary": [
+    { "term": "Audience", "means": "Who a token is addressed to. Only that party should accept it." },
+    { "term": "Scope", "means": "What the token allows. It can never exceed what the user consented to." },
+    { "term": "Token exchange", "means": "Trading a token for one addressed to a different audience, at the identity provider." }
+  ]
+}

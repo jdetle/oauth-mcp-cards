@@ -1,7 +1,6 @@
 //! HTTP + WebSocket server. One process hosts the API, the sockets and the static front end.
 use crate::crypto::{check_password, hash_password, random_bytes, sign_session, verify_session};
 use crate::engine::{Game, GameError};
-use crate::scenario::Scenario;
 use crate::types::*;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, Path, State};
@@ -103,14 +102,14 @@ impl Room {
         let sims = g.players.iter().filter(|p| p.bot).count();
         if g.started && !self.reported_started.get() {
             self.reported_started.set(true);
-            crate::telemetry::event("game.started", json!({ "room": g.room, "humans": humans, "sims": sims, "online": self.conns.len() }));
+            crate::telemetry::event("game.started", json!({ "room": g.room, "game": g.game_id, "humans": humans, "sims": sims, "online": self.conns.len() }));
         }
         let n = g.archive.len();
         if n > self.reported_rounds.get() {
             self.reported_rounds.set(n);
             if let Some(a) = g.archive.last() {
                 crate::telemetry::event("game.round_finished", json!({
-                    "room": g.room, "round": a.index, "title": a.title, "phase": format!("{:?}", a.phase).to_lowercase(),
+                    "room": g.room, "game": g.game_id, "round": a.index, "title": a.title, "phase": format!("{:?}", a.phase).to_lowercase(),
                     "success": a.success, "humans": humans, "sims": sims, "online": self.conns.len(),
                 }));
             }
@@ -229,7 +228,8 @@ pub struct AppState {
     pub admin_limiter: RateLimiter,
     pub turnstile_site_key: Option<String>,
     pub turnstile_secret: Option<String>,
-    pub scenarios: Arc<Vec<Scenario>>,
+    /// every game in the series, by id
+    pub packs: crate::pack::Packs,
     pub rooms: Mutex<HashMap<String, Arc<Mutex<Room>>>>,
     pub secret: [u8; 32],
     pub join_limiter: RateLimiter,
@@ -248,7 +248,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(scenarios: Vec<Scenario>, cfg: Config) -> Arc<Self> {
+    pub fn new(packs: crate::pack::Packs, cfg: Config) -> Arc<Self> {
         let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret, base_path, session_secret, store, idle_sleep } = cfg;
         let turnstile_on = turnstile_site_key.is_some() && turnstile_secret.is_some();
         Arc::new(AppState {
@@ -257,7 +257,7 @@ impl AppState {
             admin_limiter: RateLimiter::new(5, Duration::from_secs(300)),
             turnstile_site_key: turnstile_site_key.filter(|_| turnstile_on),
             turnstile_secret: turnstile_secret.filter(|_| turnstile_on),
-            scenarios: Arc::new(scenarios),
+            packs,
             rooms: Mutex::new(HashMap::new()),
             secret: session_secret.unwrap_or_else(random_bytes::<32>),
             join_limiter: RateLimiter::new(5, Duration::from_secs(60)),
@@ -304,7 +304,7 @@ impl AppState {
                     rec.version > r.saved && rec.version > r.version.get()
                 };
                 if behind {
-                    if let Ok(game) = crate::store::decode(&rec.game, self.scenarios.clone()) {
+                    if let Ok(game) = crate::store::decode(&rec.game, &self.packs) {
                         room.lock().unwrap().adopt(game, rec.version);
                         crate::telemetry::event("room.refreshed", json!({ "room": name, "version": rec.version }));
                         drive_sims(room.clone());
@@ -321,7 +321,7 @@ impl AppState {
 
     /// Put a stored room into memory (unless it's already there).
     fn adopt_record(self: &Arc<Self>, rec: crate::store::Record) -> Option<Arc<Mutex<Room>>> {
-        let game = match crate::store::decode(&rec.game, self.scenarios.clone()) {
+        let game = match crate::store::decode(&rec.game, &self.packs) {
             Ok(g) => g,
             Err(e) => {
                 crate::telemetry::error(&format!("stored room unreadable: {e}"), json!({ "room": rec.room }));
@@ -414,7 +414,7 @@ impl AppState {
                     let st = store.clone();
                     let n = name.clone();
                     if let Ok(Ok(Some(rec))) = tokio::task::spawn_blocking(move || st.get(&n)).await {
-                        if let Ok(game) = crate::store::decode(&rec.game, self.scenarios.clone()) {
+                        if let Ok(game) = crate::store::decode(&rec.game, &self.packs) {
                             room.lock().unwrap().adopt(game, rec.version);
                             drive_sims(room.clone());
                             drive_ready(room.clone());
@@ -615,6 +615,8 @@ pub(crate) fn error(status: StatusCode, msg: &str) -> Response {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinBody {
+    /// which game of the series (create only; default: the OAuth game)
+    game: Option<String>,
     password: Option<String>,
     display_name: Option<String>,
     role: Option<String>,
@@ -649,13 +651,37 @@ async fn public_config(State(state): State<Arc<AppState>>) -> Response {
     Json(json!({ "turnstileSiteKey": state.turnstile_site_key, "admin": state.admin_hash.is_some() })).into_response()
 }
 
+/// The series: every game this server hosts, for the home page and each game's primer.
+async fn list_games(State(state): State<Arc<AppState>>) -> Response {
+    let mut packs: Vec<&Arc<crate::pack::Pack>> = state.packs.values().collect();
+    packs.sort_by_key(|p| p.info.order);
+    let games: Vec<serde_json::Value> = packs
+        .into_iter()
+        .map(|p| {
+            let i = &p.info;
+            let seat = |r: Role| i.seats.get(&r).map(|s| json!({ "name": s.name, "brief": s.brief }));
+            json!({
+                "id": i.id, "title": i.title, "tagline": i.tagline, "accent": i.accent, "scripted": p.scripted(),
+                "rounds": p.scenarios.len(),
+                "seats": { "client": seat(Role::Client), "application": seat(Role::Application), "idp": seat(Role::Idp), "mcp": seat(Role::Mcp) },
+                "teaches": i.teaches,
+                "glossary": i.glossary.iter().map(|g| json!({ "term": g.term, "means": g.means })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let mut res = Json(json!({ "games": games })).into_response();
+    res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=300"));
+    res
+}
+
 async fn list_rooms(State(state): State<Arc<AppState>>) -> Response {
     let rooms: Vec<(String, Arc<Mutex<Room>>)> = state.rooms.lock().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut out: Vec<(Instant, serde_json::Value)> = rooms
         .into_iter()
         .map(|(name, r)| {
             let r = r.lock().unwrap();
-            (r.last_active, json!({ "name": name, "seated": r.game.seated_roles().len() }))
+            let g = r.game.public_game();
+            (r.last_active, json!({ "name": name, "seated": r.game.seated_roles().len(), "game": g.id, "gameTitle": g.title, "accent": g.accent }))
         })
         .collect();
     out.sort_by(|a, b| b.0.cmp(&a.0));
@@ -682,6 +708,9 @@ async fn create_room(
             return error(StatusCode::TOO_MANY_REQUESTS, &format!("Too many rooms created. Try again in {wait}s."));
         }
     }
+    let Some(pack) = state.packs.get(body.game.as_deref().unwrap_or(crate::pack::DEFAULT_GAME)).cloned() else {
+        return error(StatusCode::BAD_REQUEST, "No such game.");
+    };
     let password = body.password.unwrap_or_default();
     if password.chars().count() < 4 || password.len() > 128 {
         return error(StatusCode::BAD_REQUEST, "Password must be 4 to 128 characters.");
@@ -692,7 +721,8 @@ async fn create_room(
         return error(StatusCode::SERVICE_UNAVAILABLE, "Server is full. Try again later.");
     }
     let name = room_name(&|n| rooms.contains_key(n));
-    let mut game = Game::new(&name, state.scenarios.clone());
+    let game_id = pack.info.id.clone();
+    let mut game = Game::for_pack(&name, pack);
     // how often an intruder swaps a token in transit (learning and assessment rounds)
     game.intruder_rate = std::env::var("INTRUDER_RATE").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.35).clamp(0.0, 1.0);
     game.intruder_target = match std::env::var("INTRUDER_TARGET").as_deref() {
@@ -712,7 +742,7 @@ async fn create_room(
     let total = rooms.len();
     drop(rooms);
     state.touch();
-    crate::telemetry::event("room.created", json!({ "room": name, "rooms": total, "spectate": spectate }));
+    crate::telemetry::event("room.created", json!({ "room": name, "rooms": total, "spectate": spectate, "game": game_id }));
     joined(&state, &name, &player)
 }
 
@@ -974,6 +1004,7 @@ pub fn parse_client_message(raw: &str) -> Option<ClientMessage> {
         "ping" | "stand" | "start" | "tell" | "end" => &["t"],
         "ready" => &["t", "ready"],
         "sit" => &["t", "role"],
+        "pick" => &["t", "option"],
         "play" => &["t", "cardId"],
         "identify" => &["t", "flow"],
         "host" => &["t", "action", "round"],
@@ -1006,6 +1037,7 @@ pub fn apply(g: &mut Game, player_id: &str, m: ClientMessage) -> Result<(), Game
         ClientMessage::Tell => g.tell(player_id),
         ClientMessage::Host { action, round } => g.host_action(player_id, action, round),
         ClientMessage::Ready { ready } => g.set_ready(player_id, ready),
+        ClientMessage::Pick { option } => g.pick(player_id, &option),
         // handled by the server before it gets here (it closes the room)
         ClientMessage::Ping | ClientMessage::End => Ok(()),
     }
@@ -1109,6 +1141,7 @@ pub fn router(state: Arc<AppState>, static_dir: &std::path::Path) -> Router {
     let api = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/config", get(public_config))
+        .route("/api/games", get(list_games))
         .route("/api/admin/login", post(crate::admin::login))
         .route("/api/admin/logout", post(crate::admin::logout))
         .route("/api/admin/rooms", get(crate::admin::rooms))

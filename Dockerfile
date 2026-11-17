@@ -33,13 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=server /src/target/release/oauth-mcp-server /app/oauth-mcp-server
 COPY --from=web /app/out /app/out
-COPY scenarios /app/scenarios
+COPY games /app/games
 ARG BASE_PATH=
 ARG RELEASE=dev
 ARG S10_INGEST_KEY=
 ARG S10_INGEST_URL=
 ARG NEXT_PUBLIC_SENTRY_DSN=
-ENV PORT=8080 STATIC_DIR=/app/out SCENARIOS_DIR=/app/scenarios BASE_PATH=$BASE_PATH \
+ENV PORT=8080 STATIC_DIR=/app/out GAMES_DIR=/app/games BASE_PATH=$BASE_PATH \
     RELEASE=$RELEASE S10_INGEST_KEY=$S10_INGEST_KEY S10_INGEST_URL=$S10_INGEST_URL SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 EXPOSE 8080
 USER app

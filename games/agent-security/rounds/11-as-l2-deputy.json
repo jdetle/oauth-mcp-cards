@@ -1,0 +1,148 @@
+{
+  "id": "as-l2-deputy",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: The Confused Deputy",
+  "text": "A support assistant can read every customer's orders with its service account. A signed-in customer asks it about an order.",
+  "held": "The customer's identity travelled with the request, so the last hop could enforce it.",
+  "teaches": [
+    "An agent often has more access than the person asking. Act with the asker's authority, not your own.",
+    "Passing the user's identity down the chain lets the last hop enforce it.",
+    "If nobody checks, the agent's access quietly becomes the user's."
+  ],
+  "steps": [
+    {
+      "id": "ask",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Ask the orders agent for order 8841, as customer rivera",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "lookup",
+          "chip": "Pass the user's identity along"
+        },
+        {
+          "label": "Ask the orders agent for order 8841 with the service account",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "The service account can read every order. Using it for a customer's request gives the customer whatever the agent can see. That is the confused deputy.",
+          "chip": "Use the agent's own access"
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Customer request",
+        "fields": [
+          {
+            "label": "asks",
+            "value": "Show me order 8841"
+          },
+          {
+            "label": "signed in as",
+            "value": "cust:rivera"
+          }
+        ]
+      }
+    },
+    {
+      "id": "lookup",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Query the database as cust:rivera",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "query"
+        },
+        {
+          "label": "Refuse the lookup",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "It is the customer's own order. Check, then fetch it."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Delegated lookup",
+        "fields": [
+          {
+            "label": "order",
+            "value": "8841"
+          },
+          {
+            "label": "acting for",
+            "value": "cust:rivera"
+          },
+          {
+            "label": "order belongs to",
+            "value": "cust:rivera",
+            "sealed": true,
+            "check": "Check whose order this is",
+            "ok": "Order 8841 belongs to cust:rivera."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "order belongs to",
+        "value": "cust:okafor",
+        "detail": "Order 8841 belongs to a different customer, cust:okafor.",
+        "correct": "Refuse the lookup",
+        "why": "The customer asked for somebody else's order. The agent could read it; the customer may not.",
+        "reveal": "Order 8841 belonged to a different customer than the one asking."
+      }
+    },
+    {
+      "id": "query",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Run the query",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the query",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "The query runs as the customer and can only see their rows. Check, then run it."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Database query",
+        "fields": [
+          {
+            "label": "query",
+            "value": "orders where id = 8841"
+          },
+          {
+            "label": "running as",
+            "value": "cust:rivera (their rows only)",
+            "sealed": true,
+            "check": "Check which identity this query runs as",
+            "ok": "Runs as cust:rivera: only their rows are visible."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "running as",
+        "value": "svc:support-agent (all rows)",
+        "detail": "Runs as the support agent's service account: every customer's rows are visible.",
+        "correct": "Refuse the query",
+        "why": "A customer's question ran with the agent's full access. The database was the last place that could have noticed.",
+        "reveal": "The query arrived running as the service account, not as the customer."
+      }
+    }
+  ]
+}

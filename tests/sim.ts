@@ -13,7 +13,7 @@ export function adminHash(password: string): string {
   if (r.exitCode !== 0) throw new Error(`hash-password failed: ${r.stderr.toString()}`);
   return r.stdout.toString().trim();
 }
-export const SCENARIO_COUNT = readdirSync(`${ROOT}/scenarios`).filter((f) => f.endsWith(".json")).length;
+export const SCENARIO_COUNT = readdirSync(`${ROOT}/games/oauth-mcp/rounds`).filter((f) => f.endsWith(".json")).length;
 
 export interface Joined {
   ok: boolean;
@@ -129,7 +129,7 @@ export async function startServer(extraEnv: Record<string, string> = {}): Promis
   process.env.INTERNAL_TOKEN = TEST_INTERNAL_TOKEN;
   const port = 20000 + Math.floor(Math.random() * 20000);
   const proc: Subprocess = spawn([bin], {
-    env: { ...process.env, PORT: String(port), SCENARIOS_DIR: `${ROOT}/scenarios`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN, INTRUDER_RATE: "0", ...extraEnv },
+    env: { ...process.env, PORT: String(port), GAMES_DIR: `${ROOT}/games`, STATIC_DIR: `${ROOT}/out`, INTERNAL_TOKEN: TEST_INTERNAL_TOKEN, INTRUDER_RATE: "0", ...extraEnv },
     stdout: "ignore",
     stderr: "ignore",
   });

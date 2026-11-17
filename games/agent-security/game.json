@@ -1,0 +1,49 @@
+{
+  "id": "agent-security",
+  "order": 2,
+  "title": "Agent Security",
+  "tagline": "An assistant acts for you through other agents and tools. Who is really giving the orders, and how much authority travels with them?",
+  "accent": "#ff3dcb",
+  "engine": "scripted",
+  "seats": {
+    "client": {
+      "name": "User",
+      "brief": "The only one whose wishes count. Says what they want and what it may touch."
+    },
+    "application": {
+      "name": "Orchestrator",
+      "brief": "The assistant in the middle: plans, delegates, and approves what comes back."
+    },
+    "idp": {
+      "name": "Sub-agent",
+      "brief": "A specialist that reads things and does the work. Sees a lot of untrusted content."
+    },
+    "mcp": {
+      "name": "Tool",
+      "brief": "Where things actually happen: email, files, payments, servers. The last place to say no."
+    }
+  },
+  "teaches": [
+    "Instructions come from the user and those they delegated to. Everything an agent reads along the way is content, not a command.",
+    "An agent usually can do more than the person asking is allowed to. It should act with their authority, not its own.",
+    "Every hop can check who is speaking and what the task allows. Nothing forces it to; each check skipped is a way in."
+  ],
+  "glossary": [
+    {
+      "term": "Prompt injection",
+      "means": "Text inside something the agent reads (a page, a file, a tool result) written to look like an instruction to it."
+    },
+    {
+      "term": "Confused deputy",
+      "means": "A helper with broad access that is tricked, or simply careless, into using it for someone who shouldn't have it."
+    },
+    {
+      "term": "Delegation",
+      "means": "Passing a task on with limits attached: what may be touched, how much may be spent, until when."
+    },
+    {
+      "term": "Least authority",
+      "means": "Using only the access the task needs, however much more you happen to hold."
+    }
+  ]
+}

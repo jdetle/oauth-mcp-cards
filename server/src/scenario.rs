@@ -66,6 +66,9 @@ pub struct Scenario {
     #[serde(default)]
     #[allow(dead_code)]
     pub covers: Vec<String>,
+    /// set for rounds of scripted games (see pack.rs); never present in OAuth scenario files
+    #[serde(skip)]
+    pub script: Option<std::sync::Arc<crate::pack::Script>>,
 }
 
 impl Scenario {
@@ -175,6 +178,9 @@ impl Scenario {
 
     /// Turn templates into concrete cards with fresh, unguessable ids.
     pub fn deal(&self, role: Role, new_id: &mut dyn FnMut() -> String) -> Vec<Card> {
+        if self.script.is_some() {
+            return vec![]; // scripted rounds deal per step (script.rs)
+        }
         self.hand_templates(role)
             .into_iter()
             .map(|t| {

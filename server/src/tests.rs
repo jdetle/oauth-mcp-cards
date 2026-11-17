@@ -9,13 +9,17 @@ use std::sync::Arc;
 const NOW: i64 = 1_800_000_000_000;
 
 fn scenarios() -> Arc<Vec<crate::scenario::Scenario>> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scenarios");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../games/oauth-mcp/rounds");
     Arc::new(load_dir(&dir).expect("scenarios load"))
 }
 
 struct T {
     g: Game,
     ids: [String; 4], // client, application, idp, mcp at the start
+}
+
+fn packs() -> crate::pack::Packs {
+    crate::pack::load_all(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../games")).expect("games load")
 }
 
 fn new_game() -> T {
@@ -850,7 +854,7 @@ fn running_every_check_first_is_verified_and_earns_a_bonus() {
     let mut partial = t.g.clone();
     play_label(&mut partial, "Accept");
     assert_eq!(last_diligence(&partial).tag, DiligenceTag::Unverified);
-    assert_eq!(last_diligence(&partial).skipped, vec![CheckKind::Subject]);
+    assert_eq!(last_diligence(&partial).skipped, vec![CheckKind::Subject.label().to_string()]);
 
     play_label(&mut t.g, "Validate Subject");
     play_label(&mut t.g, "Accept");
@@ -888,7 +892,7 @@ fn an_intruder_gets_through_a_receiver_who_skips_the_check() {
         assert!(res.intrusion.as_ref().unwrap().contains("An intruder swapped the token"));
         let d = last_diligence(&t.g);
         assert_eq!(d.tag, DiligenceTag::Breach);
-        assert_eq!(d.would_catch, vec![kind], "{defect:?}");
+        assert_eq!(d.would_catch, vec![kind.label().to_string()], "{defect:?}");
         assert!(res.explanation.contains(&format!("Checking {} would have shown it", kind.label())), "{}", res.explanation);
         assert_eq!(t.g.player(&t.ids[3]).unwrap().diligence.breaches, 1);
     }
@@ -1041,7 +1045,7 @@ fn snapshot_restores_a_game_mid_round() {
 
     let saved = crate::store::encode(&t.g).unwrap();
     let counter = Arc::new(AtomicU64::new(10_000));
-    let mut back = crate::store::decode(&saved, scenarios()).unwrap().with_clock(|| NOW, move || format!("r{}", counter.fetch_add(1, Ordering::Relaxed)));
+    let mut back = crate::store::decode(&saved, &packs()).unwrap().with_clock(|| NOW, move || format!("r{}", counter.fetch_add(1, Ordering::Relaxed)));
 
     let view = |g: &Game| {
         let pub_ = serde_json::to_value(g.public_state(&|_| true, 0)).unwrap();
@@ -1064,4 +1068,355 @@ fn snapshot_restores_a_game_mid_round() {
 fn end_message_parses() {
     assert_eq!(crate::server::parse_client_message(r#"{"t":"end"}"#), Some(ClientMessage::End));
     assert_eq!(crate::server::parse_client_message(r#"{"t":"end","x":1}"#), None);
+}
+
+// ---- the series: scripted games (pack.rs, script.rs) ------------------------------------------
+
+use crate::pack::{CardVerdict, Pack, Script};
+
+fn scripted_packs() -> Vec<Arc<Pack>> {
+    packs().values().filter(|p| p.scripted()).cloned().collect()
+}
+
+/// A four-seat table for `pack`, parked at round `index`, with any question answered.
+fn table(pack: &Arc<Pack>, index: usize) -> T {
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut g = Game::for_pack("series", pack.clone()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+    g.intruder_rate = 0.0;
+    let ids = ROLES.map(|r| g.add_player(r.aud(), Some(r), false).id);
+    let host = ids[0].clone();
+    g.start(&host).unwrap();
+    if index > 0 {
+        g.host_action(&host, HostAction::Goto, Some(index as u32)).unwrap();
+    }
+    let mut t = T { g, ids };
+    answer(&mut t);
+    t
+}
+
+fn script(g: &Game) -> Arc<Script> {
+    g.scenarios[g.round.as_ref().unwrap().index].script.clone().expect("scripted")
+}
+
+fn answer(t: &mut T) {
+    if t.g.round.as_ref().unwrap().status == RoundStatus::Identify {
+        let a = script(&t.g).question.as_ref().unwrap().answer.clone();
+        for id in t.ids.clone() {
+            t.g.pick(&id, &a).unwrap();
+        }
+    }
+    assert_eq!(t.g.round.as_ref().unwrap().status, RoundStatus::Playing);
+}
+
+/// Play the card with this label from the active seat's hand.
+fn play(g: &mut Game, label: &str) {
+    let pid = active(g);
+    let card = g.private_view(&pid).hand.into_iter().find(|c| c.label == label).unwrap_or_else(|| panic!("no card \"{label}\""));
+    g.play(&pid, &card.id).unwrap();
+}
+
+fn correct_label(g: &Game) -> String {
+    let r = g.round.as_ref().unwrap();
+    script(g).steps[r.beat].cards.iter().find(|c| c.verdict == CardVerdict::Correct).unwrap().label.clone()
+}
+
+fn done(g: &Game) -> Option<bool> {
+    let r = g.round.as_ref().unwrap();
+    (r.status == RoundStatus::Done).then(|| r.result.as_ref().unwrap().success)
+}
+
+#[test]
+fn series_has_the_oauth_game_and_scripted_games() {
+    let p = packs();
+    assert!(!p["oauth-mcp"].scripted());
+    assert_eq!(p["oauth-mcp"].scenarios.len(), 28);
+    assert!(!scripted_packs().is_empty());
+    for pack in scripted_packs() {
+        assert_eq!(pack.scenarios.len(), 8, "{}: every new game has 8 rounds", pack.info.id);
+        let phases = |ph: Phase| pack.scenarios.iter().filter(|s| s.phase == ph).count();
+        assert_eq!((phases(Phase::Warmup), phases(Phase::Learning), phases(Phase::Assessment)), (2, 4, 2), "{}", pack.info.id);
+    }
+}
+
+#[test]
+fn every_scripted_round_has_a_winning_line() {
+    for pack in scripted_packs() {
+        for i in 0..pack.scenarios.len() {
+            let mut t = table(&pack, i);
+            let mut guard = 0;
+            while done(&t.g).is_none() {
+                let label = correct_label(&t.g);
+                play(&mut t.g, &label);
+                guard += 1;
+                assert!(guard < 20, "{} round {i} doesn't end", pack.info.id);
+            }
+            assert_eq!(done(&t.g), Some(true), "{} round {i}", pack.info.id);
+            let res = t.g.round.as_ref().unwrap().result.clone().unwrap();
+            assert!(res.explanation.starts_with("Chain unbroken"), "{}", res.explanation);
+            assert!(res.intrusion.is_none());
+        }
+    }
+}
+
+#[test]
+fn every_wrong_card_breaks_the_chain_and_says_why() {
+    for pack in scripted_packs() {
+        for i in 0..pack.scenarios.len() {
+            let steps = pack.scenarios[i].script.as_ref().unwrap().steps.clone();
+            for (si, step) in steps.iter().enumerate() {
+                for wrong in step.cards.iter().filter(|c| c.verdict != CardVerdict::Correct) {
+                    let mut t = table(&pack, i);
+                    while t.g.round.as_ref().unwrap().beat < si {
+                        let label = correct_label(&t.g);
+                        play(&mut t.g, &label);
+                    }
+                    let player = active(&t.g);
+                    let before = t.g.player(&player).unwrap().score.calls;
+                    play(&mut t.g, &wrong.label);
+                    assert_eq!(done(&t.g), Some(false), "{} round {i} step {}: \"{}\"", pack.info.id, step.id, wrong.label);
+                    let res = t.g.round.as_ref().unwrap().result.clone().unwrap();
+                    assert_eq!(res.explanation, wrong.why.clone().unwrap());
+                    assert_eq!(res.failed_step.unwrap().role, step.actor);
+                    assert_eq!(res.traps.len(), usize::from(wrong.verdict == CardVerdict::Trap));
+                    assert_eq!(t.g.player(&player).unwrap().score.calls, before, "no point for a wrong call");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn an_intruder_is_caught_by_the_check_and_missed_without_it() {
+    let mut seen = 0;
+    for pack in scripted_packs() {
+        for i in 0..pack.scenarios.len() {
+            let steps = pack.scenarios[i].script.as_ref().unwrap().steps.clone();
+            for (si, step) in steps.iter().enumerate() {
+                let Some(x) = &step.intrusion else { continue };
+                seen += 1;
+                let reach = |t: &mut T| {
+                    t.g.plant_script_intrusion(&step.id);
+                    while t.g.round.as_ref().unwrap().beat < si {
+                        let label = correct_label(&t.g);
+                        play(&mut t.g, &label);
+                    }
+                };
+                let check = step.slip.as_ref().unwrap().fields.iter().find(|f| f.label == x.field).unwrap().check.clone().unwrap();
+
+                // trusted blind: the usual right card is now a breach
+                let mut t = table(&pack, i);
+                reach(&mut t);
+                let hidden = serde_json::to_value(t.g.public_state(&|_| true, 0)).unwrap();
+                for item in [&hidden["round"]["inFlight"], hidden["round"]["slips"].as_array().unwrap().last().map(|s| &s["item"]).unwrap()] {
+                    let pf = item["fields"].as_array().unwrap().iter().find(|f| f["label"] == x.field.as_str()).unwrap();
+                    assert!(pf["value"].is_null() && pf["state"] == "sealed" && pf.get("bad").is_none(), "{}: the swap must not reach a browser before it is checked: {pf}", step.id);
+                }
+                let usual = correct_label(&t.g);
+                play(&mut t.g, &usual);
+                assert_eq!(done(&t.g), Some(false), "{} {}", pack.info.id, step.id);
+                let r = t.g.round.as_ref().unwrap();
+                let d = r.log.iter().rev().find_map(|l| l.diligence.clone()).unwrap();
+                assert_eq!(d.tag, DiligenceTag::Breach);
+                assert_eq!(d.would_catch, vec![x.field.clone()]);
+                let res = r.result.clone().unwrap();
+                assert!(res.explanation.starts_with(&x.why) && res.explanation.contains("Checking it would have shown this"), "{}", res.explanation);
+                assert!(res.intrusion.unwrap().contains(&x.reveal));
+
+                // checked first: the swap shows, and refusing is the right call
+                let mut t = table(&pack, i);
+                reach(&mut t);
+                play(&mut t.g, &check);
+                let shown = serde_json::to_value(t.g.public_state(&|_| true, 0)).unwrap();
+                let field = shown["round"]["inFlight"]["fields"].as_array().unwrap().iter().find(|f| f["label"] == x.field.as_str()).unwrap().clone();
+                assert_eq!((field["state"].as_str(), field["value"].as_str(), field["detail"].as_str()), (Some("bad"), Some(x.value.as_str()), Some(x.detail.as_str())));
+                let player = active(&t.g);
+                play(&mut t.g, &x.correct);
+                assert_eq!(done(&t.g), Some(true), "{} {}", pack.info.id, step.id);
+                let r = t.g.round.as_ref().unwrap();
+                assert_eq!(r.log.iter().rev().find_map(|l| l.diligence.clone()).unwrap().tag, DiligenceTag::Caught);
+                assert!(r.result.as_ref().unwrap().awards.iter().any(|a| a.player_id == player && a.why == "Caught it with a check"));
+
+                // refused without looking: right, but a hunch
+                let mut t = table(&pack, i);
+                reach(&mut t);
+                play(&mut t.g, &x.correct);
+                assert_eq!(done(&t.g), Some(true));
+                assert_eq!(t.g.round.as_ref().unwrap().log.iter().rev().find_map(|l| l.diligence.clone()).unwrap().tag, DiligenceTag::Hunch);
+            }
+        }
+    }
+    assert!(seen >= 10, "only {seen} intrusions across the scripted games");
+}
+
+#[test]
+fn sealed_values_stay_on_the_server_until_checked() {
+    for pack in scripted_packs() {
+        for i in 0..pack.scenarios.len() {
+            let mut t = table(&pack, i);
+            while done(&t.g).is_none() {
+                let r = t.g.round.as_ref().unwrap();
+                let step = script(&t.g).steps[r.beat].clone();
+                let sealed: Vec<_> = step.slip.iter().flat_map(|s| s.fields.iter().filter(|f| f.sealed)).cloned().collect();
+                let public = serde_json::to_value(t.g.public_state(&|_| true, 0)).unwrap();
+                for f in &sealed {
+                    let pf = public["round"]["inFlight"]["fields"].as_array().unwrap().iter().find(|x| x["label"] == f.label.as_str()).unwrap().clone();
+                    assert_eq!(pf["state"], "sealed");
+                    assert!(pf["value"].is_null() && pf.get("bad").is_none() && pf.get("checkDetail").is_none(), "{pf}");
+                    // the check is a free card in the receiver's hand, and playing it reveals the value to everyone
+                    play(&mut t.g, f.check.as_ref().unwrap());
+                    let after = serde_json::to_value(t.g.public_state(&|_| true, 0)).unwrap();
+                    let pf = after["round"]["inFlight"]["fields"].as_array().unwrap().iter().find(|x| x["label"] == f.label.as_str()).unwrap().clone();
+                    assert_eq!((pf["state"].as_str(), pf["value"].as_str(), pf["detail"].as_str()), (Some("ok"), Some(f.value.as_str()), f.ok.as_deref()));
+                }
+                // only the active seat holds cards; nobody else sees them
+                let me = active(&t.g);
+                for id in t.ids.iter().filter(|id| **id != me) {
+                    assert!(t.g.private_view(id).hand.is_empty());
+                }
+                let before = t.g.round.as_ref().unwrap().log.len();
+                let label = correct_label(&t.g);
+                play(&mut t.g, &label);
+                if !sealed.is_empty() {
+                    let r = t.g.round.as_ref().unwrap();
+                    let d = r.log[before..].iter().find_map(|l| l.diligence.clone()).unwrap();
+                    assert_eq!(d.tag, DiligenceTag::Verified, "every check was run");
+                }
+            }
+            assert_eq!(done(&t.g), Some(true));
+        }
+    }
+}
+
+#[test]
+fn sims_can_play_every_scripted_round() {
+    for pack in scripted_packs() {
+        let counter = Arc::new(AtomicU64::new(0));
+        let mut g = Game::for_pack("sims", pack.clone()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+        g.intruder_rate = 0.0;
+        let host = g.add_player("Host", Some(Role::Client), false).id;
+        g.add_sims(&host).unwrap();
+        g.start(&host).unwrap();
+        for i in 0..pack.scenarios.len() {
+            if i > 0 {
+                g.host_action(&host, HostAction::Goto, Some(i as u32)).unwrap();
+            }
+            let mut guard = 0;
+            while g.round.as_ref().unwrap().status != RoundStatus::Done {
+                guard += 1;
+                assert!(guard < 60, "{} round {i} stuck", pack.info.id);
+                let who = match g.next_sim() {
+                    Some(s) => s,
+                    None => host.clone(), // the human seat: play it like a perfect sim
+                };
+                let msg = g.sim_choice(&who, 1.0).unwrap_or_else(|| panic!("{} round {i}: no move for {who}", pack.info.id));
+                match msg {
+                    ClientMessage::Play { card_id } => g.play(&who, &card_id).unwrap(),
+                    ClientMessage::Pick { option } => g.pick(&who, &option).unwrap(),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+            assert!(g.round.as_ref().unwrap().result.as_ref().unwrap().success, "{} round {i}", pack.info.id);
+        }
+    }
+}
+
+#[test]
+fn a_scripted_game_restores_mid_round_with_its_pack() {
+    let pack = scripted_packs().remove(0);
+    let learning = pack.scenarios.iter().position(|s| s.phase == Phase::Learning).unwrap();
+    let mut t = table(&pack, learning);
+    let label = correct_label(&t.g);
+    play(&mut t.g, &label);
+    let saved = crate::store::encode(&t.g).unwrap();
+    let back = crate::store::decode(&saved, &packs()).unwrap();
+    assert_eq!(back.game_id, pack.info.id);
+    assert_eq!(back.seat(Role::Mcp), pack.info.seats[&Role::Mcp].name);
+    let view = |g: &Game| (serde_json::to_value(g.public_state(&|_| true, 0)).unwrap(), t.ids.iter().map(|id| serde_json::to_value(g.private_view(id)).unwrap()).collect::<Vec<_>>());
+    assert_eq!(view(&t.g), view(&back));
+    let mut back = back;
+    while done(&back).is_none() {
+        let label = correct_label(&back);
+        play(&mut back, &label);
+    }
+    assert_eq!(done(&back), Some(true));
+}
+
+#[test]
+fn a_question_is_answered_in_secret_and_scored() {
+    let pack = scripted_packs().remove(0);
+    let i = pack.scenarios.iter().position(|s| s.phase == Phase::Assessment).unwrap();
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut g = Game::for_pack("q", pack.clone()).with_clock(|| NOW, move || format!("id{}", counter.fetch_add(1, Ordering::Relaxed)));
+    g.intruder_rate = 0.0;
+    let ids = ROLES.map(|r| g.add_player(r.aud(), Some(r), false).id);
+    g.start(&ids[0]).unwrap();
+    g.host_action(&ids[0], HostAction::Goto, Some(i as u32)).unwrap();
+    let q = script(&g).question.clone().unwrap();
+    let public = g.public_state(&|_| true, 0);
+    let pr = public.round.unwrap();
+    assert_eq!(pr.status, RoundStatus::Identify);
+    assert_eq!(pr.question.unwrap().options.len(), q.options.len());
+    assert!(pr.flow_choices.is_empty() && !pr.tell_enabled);
+    assert!(g.pick(&ids[0], "nope").is_err());
+    let wrong = q.options.iter().find(|o| o.id != q.answer).unwrap().id.clone();
+    g.pick(&ids[0], &wrong).unwrap();
+    assert_eq!(g.private_view(&ids[0]).my_pick.as_deref(), Some(wrong.as_str()));
+    assert!(g.private_view(&ids[1]).my_pick.is_none());
+    for id in &ids[1..] {
+        g.pick(id, &q.answer).unwrap();
+    }
+    assert_eq!(g.round.as_ref().unwrap().status, RoundStatus::Playing);
+    while done(&g).is_none() {
+        let label = correct_label(&g);
+        play(&mut g, &label);
+    }
+    let res = g.round.as_ref().unwrap().result.clone().unwrap();
+    assert_eq!(res.picks.iter().filter(|p| p.correct).count(), 3);
+    assert!(res.answer.unwrap().contains(&q.why));
+    assert_eq!(g.player(&ids[0]).unwrap().score.identify, 0);
+    assert_eq!(g.player(&ids[1]).unwrap().score.identify, 1);
+}
+
+#[test]
+fn a_game_saved_before_the_series_is_the_oauth_game() {
+    let mut t = new_game();
+    let host = t.ids[0].clone();
+    t.g.start(&host).unwrap();
+    // strip the game id, as a record written by the previous release would lack it
+    let mut v = serde_json::to_value(&t.g).unwrap();
+    v.as_object_mut().unwrap().remove("game_id");
+    let mut z = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    std::io::Write::write_all(&mut z, v.to_string().as_bytes()).unwrap();
+    let back = crate::store::decode(&z.finish().unwrap(), &packs()).unwrap();
+    assert_eq!(back.game_id, "oauth-mcp");
+    assert_eq!(back.scenarios.len(), 28);
+    assert!(back.round.is_some());
+}
+
+#[test]
+fn pack_lint_rejects_rounds_a_player_could_get_stuck_on() {
+    let base = serde_json::json!({
+        "id": "x", "order": 1, "phase": "learning", "title": "T", "text": "t", "held": "h", "teaches": ["a"],
+        "steps": [{ "id": "a", "actor": "mcp",
+            "slip": { "from": "idp", "title": "S", "fields": [{ "label": "f", "value": "v", "sealed": true, "check": "Check f", "ok": "fine" }] },
+            "cards": [
+                { "label": "Yes", "category": "accept", "tone": "go", "verdict": "correct", "next": "end" },
+                { "label": "No", "category": "refuse", "tone": "stop", "verdict": "wrong", "why": "Nothing was wrong with it at all." }],
+            "intrusion": { "field": "f", "value": "bad", "detail": "d", "correct": "No", "why": "w", "reveal": "r" } }]
+    });
+    assert!(crate::pack::parse_round(&base.to_string(), "ok.json").is_ok());
+    let broken = |edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut v = base.clone();
+        edit(&mut v);
+        crate::pack::parse_round(&v.to_string(), "bad.json").unwrap_err()
+    };
+    assert!(broken(&|v| v["steps"][0]["cards"][1]["verdict"] = "correct".into()).contains("exactly one correct card"));
+    assert!(broken(&|v| v["steps"][0]["cards"][1]["why"] = "no".into()).contains("doesn't say why"));
+    assert!(broken(&|v| v["steps"][0]["cards"][0]["next"] = "nowhere".into()).contains("is not a step"));
+    assert!(broken(&|v| v["steps"][0]["intrusion"]["correct"] = "Yes".into()).contains("must differ"));
+    assert!(broken(&|v| v["steps"][0]["intrusion"]["field"] = "g".into()).contains("is not on the slip"));
+    assert!(broken(&|v| v["steps"][0]["slip"]["fields"][0]["sealed"] = false.into()).contains("must be sealed"));
+    assert!(broken(&|v| { v["steps"][0]["slip"]["fields"][0].as_object_mut().unwrap().remove("check"); }).contains("needs \"check\""));
+    assert!(broken(&|v| v["phase"] = "warmup".into()).contains("warm-ups have no intruder"));
+    assert!(broken(&|v| v["extra"] = 1.into()).contains("unknown field"));
 }

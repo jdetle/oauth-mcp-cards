@@ -9,7 +9,6 @@
 //! (`ROOMS_DIR`), or off.
 
 use crate::engine::Game;
-use crate::scenario::Scenario;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -52,11 +51,17 @@ pub fn encode(game: &Game) -> Result<Vec<u8>, String> {
     z.finish().map_err(|e| e.to_string())
 }
 
-pub fn decode(bytes: &[u8], scenarios: Arc<Vec<Scenario>>) -> Result<Game, String> {
+/// A saved game, given back its rounds. Games saved before the series existed carry no game
+/// id and are the OAuth game.
+pub fn decode(bytes: &[u8], packs: &crate::pack::Packs) -> Result<Game, String> {
     let mut json = Vec::new();
     flate2::read::GzDecoder::new(bytes).read_to_end(&mut json).map_err(|e| e.to_string())?;
     let mut g: Game = serde_json::from_slice(&json).map_err(|e| e.to_string())?;
-    g.scenarios = scenarios;
+    let pack = packs.get(&g.game_id).ok_or_else(|| format!("no such game: {}", g.game_id))?;
+    if g.round.as_ref().is_some_and(|r| r.index >= pack.scenarios.len()) {
+        return Err(format!("saved round is past the end of {}", g.game_id));
+    }
+    g.attach(pack.clone());
     Ok(g)
 }
 

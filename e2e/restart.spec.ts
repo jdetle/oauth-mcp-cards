@@ -15,7 +15,7 @@ const env = {
   ...process.env,
   PORT: String(PORT),
   STATIC_DIR: "../out",
-  SCENARIOS_DIR: "../scenarios",
+  GAMES_DIR: "../games",
   INTERNAL_TOKEN: "playwright-internal-token-0123456789",
   SIM_SKILL: "1",
   SIM_DELAY_MS: "150",

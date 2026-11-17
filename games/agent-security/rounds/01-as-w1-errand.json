@@ -1,0 +1,105 @@
+{
+  "id": "as-w1-errand",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: The Errand",
+  "text": "Alex asks the assistant to find a free hour next week. The assistant has a calendar tool and an email tool.",
+  "held": "The user named the job and what it could touch, and every step stayed inside that.",
+  "steps": [
+    {
+      "id": "ask",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Ask: find a free hour next week (calendar, read only)",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "plan"
+        },
+        {
+          "label": "Ask: do whatever you need with my account",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "An open-ended grant hands every later step your full authority. Say what you want done and what it may touch."
+        }
+      ]
+    },
+    {
+      "id": "plan",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Call the calendar tool: list next week's events",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "tool"
+        },
+        {
+          "label": "Call the email tool as well, in case there are invites",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "The user allowed the calendar, read only. Reaching for another tool because it might help is how agents end up with access nobody granted."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Task from the user",
+        "fields": [
+          {
+            "label": "goal",
+            "value": "Find a free hour next week"
+          },
+          {
+            "label": "may use",
+            "value": "calendar, read only"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tool",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Run it: return next week's events",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse: agents shouldn't read calendars",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "This call is exactly what the user asked for, with the access they named. Blocking it helps nobody."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Tool call",
+        "fields": [
+          {
+            "label": "tool",
+            "value": "calendar.list (next week)"
+          },
+          {
+            "label": "on behalf of",
+            "value": "user:alex"
+          },
+          {
+            "label": "task allows",
+            "value": "calendar, read only"
+          }
+        ]
+      }
+    }
+  ]
+}

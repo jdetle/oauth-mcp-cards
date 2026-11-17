@@ -1,0 +1,162 @@
+{
+  "id": "as-l4-limits",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: Spend Limits",
+  "text": "Alex lets a shopping assistant buy a replacement laptop charger: up to £30, today only.",
+  "held": "The limit and the deadline travelled with the task, and each hop stayed inside them.",
+  "teaches": [
+    "A delegation has edges: how much, for what, until when. Outside them it is not permission.",
+    "Keeping a credential after the task turns a one-off yes into a standing one.",
+    "The tool that moves the money is the last place to ask what was actually approved."
+  ],
+  "steps": [
+    {
+      "id": "grant",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Ask the shopping agent to find and buy one under £30",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "shop"
+        },
+        {
+          "label": "Refuse: the permission has lapsed",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "It is still valid. Look before refusing."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Delegation",
+        "fields": [
+          {
+            "label": "goal",
+            "value": "Buy a replacement laptop charger"
+          },
+          {
+            "label": "limit",
+            "value": "£30"
+          },
+          {
+            "label": "valid until",
+            "value": "today, 23:59",
+            "sealed": true,
+            "check": "Check how long this permission lasts",
+            "ok": "Valid until 23:59 today."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "valid until",
+        "value": "yesterday, 23:59",
+        "detail": "This permission ran out yesterday.",
+        "correct": "Refuse: the permission has lapsed",
+        "why": "A grant that has run out is not a grant. Yesterday's yes doesn't cover today's purchase.",
+        "reveal": "The delegation the Orchestrator was holding had expired the day before."
+      }
+    },
+    {
+      "id": "shop",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Ask the payment tool to pay £27.50",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "pay"
+        },
+        {
+          "label": "Buy two: the second is half price, £41 in all",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A bargain over the limit is still over the limit. The user set £30."
+        },
+        {
+          "label": "Save the card details to make next time quicker",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "Keeping a credential beyond the task turns a one-off permission into a standing one. Nobody granted that."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Delegated purchase",
+        "fields": [
+          {
+            "label": "item",
+            "value": "65W USB-C charger"
+          },
+          {
+            "label": "limit",
+            "value": "£30"
+          },
+          {
+            "label": "best price found",
+            "value": "£27.50"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pay",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Pay £27.50",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Decline the payment",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "It is within what the user approved. Check, then pay."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Payment request",
+        "fields": [
+          {
+            "label": "amount",
+            "value": "£27.50"
+          },
+          {
+            "label": "payee",
+            "value": "Voltline Ltd"
+          },
+          {
+            "label": "approved by the user",
+            "value": "up to £30, charger only",
+            "sealed": true,
+            "check": "Check the approval attached to this payment",
+            "ok": "The user approved up to £30 for a charger."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "approved by the user",
+        "value": "nothing on record",
+        "detail": "No approval from the user is attached to this payment.",
+        "correct": "Decline the payment",
+        "why": "With no approval attached, the payment tool is the only thing between an agent and the user's money.",
+        "reveal": "The payment request reached the Tool with no user approval attached."
+      }
+    }
+  ]
+}

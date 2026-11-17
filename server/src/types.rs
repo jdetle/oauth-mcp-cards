@@ -236,6 +236,46 @@ pub enum InFlight {
         confirmed_by_idp: bool,
     },
     Introspect { from: Role, to: Role, request: RequestSpec, credential: Option<Credential> },
+    /// Scripted games: a titled slip of labelled fields. Sealed values are held back by the
+    /// server until the receiver checks them.
+    Packet {
+        from: Role,
+        to: Role,
+        title: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        note: Option<String>,
+        fields: Vec<PacketField>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldState {
+    /// plain to see
+    Open,
+    /// hidden until checked
+    Sealed,
+    /// checked: fine
+    Ok,
+    /// checked (or revealed at the end): wrong
+    Bad,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PacketField {
+    pub label: String,
+    /// None while sealed (the value never reaches a browser until it is checked)
+    pub value: Option<String>,
+    pub state: FieldState,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<String>,
+    /// server-side only: this value was swapped by an intruder (stripped from public views)
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub bad: bool,
+    /// server-side only: what a check on this field reports (stripped from public views)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub check_detail: Option<String>,
 }
 
 impl InFlight {
@@ -246,6 +286,7 @@ impl InFlight {
             | InFlight::Exchange { from, .. }
             | InFlight::Assertion { from, .. }
             | InFlight::Call { from, .. }
+            | InFlight::Packet { from, .. }
             | InFlight::Introspect { from, .. } => *from,
         }
     }
@@ -256,6 +297,7 @@ impl InFlight {
             | InFlight::Exchange { to, .. }
             | InFlight::Assertion { to, .. }
             | InFlight::Call { to, .. }
+            | InFlight::Packet { to, .. }
             | InFlight::Introspect { to, .. } => *to,
         }
     }
@@ -266,7 +308,7 @@ impl InFlight {
             | InFlight::Assertion { request, .. }
             | InFlight::Call { request, .. }
             | InFlight::Introspect { request, .. } => Some(request),
-            InFlight::TokenRequest { .. } => None,
+            InFlight::TokenRequest { .. } | InFlight::Packet { .. } => None,
         }
     }
 }
@@ -297,6 +339,10 @@ pub enum CardType {
     ValidateExpiry,
     ValidateIssuer,
     ValidateSubject,
+    /// a card in a scripted game (its meaning lives in the game pack)
+    Script,
+    /// an optional check in a scripted game: reveals one sealed field
+    ScriptCheck,
 }
 
 /// One thing a receiver can verify about a token. None of these are needed for the
@@ -325,7 +371,7 @@ impl CheckKind {
 
 impl CardType {
     pub fn is_free(self) -> bool {
-        matches!(self, CardType::RegisteredKey) || self.check_kind().is_some()
+        matches!(self, CardType::RegisteredKey | CardType::ScriptCheck) || self.check_kind().is_some()
     }
     /// The token check this card performs, if it is one.
     pub fn check_kind(self) -> Option<CheckKind> {
@@ -384,6 +430,8 @@ impl CardType {
             CardType::RegisteredKey => "Registered Key",
             CardType::Accept => "Accept",
             CardType::ValidateAudience | CardType::ValidateScope | CardType::ValidateExpiry | CardType::ValidateIssuer | CardType::ValidateSubject => "Validate",
+            CardType::Script => "Play",
+            CardType::ScriptCheck => "Check",
         }
     }
 }
@@ -548,10 +596,10 @@ pub enum DiligenceTag {
 #[serde(rename_all = "camelCase")]
 pub struct Diligence {
     pub tag: DiligenceTag,
-    /// relevant checks that were not run before deciding
-    pub skipped: Vec<CheckKind>,
+    /// relevant checks that were not run before deciding (field names)
+    pub skipped: Vec<String>,
     /// for a breach: the check(s) that would have exposed it
-    pub would_catch: Vec<CheckKind>,
+    pub would_catch: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -656,6 +704,69 @@ pub struct RoundResult {
     pub traps: Vec<String>,
     /// revealed at the end: what an intruder swapped in transit, if anything
     pub intrusion: Option<String>,
+    /// scripted games: everyone's answer to the round's question, and the right one
+    #[serde(default)]
+    pub picks: Vec<PickResult>,
+    #[serde(default)]
+    pub answer: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickResult {
+    pub player_id: String,
+    pub name: String,
+    pub option: String,
+    pub correct: bool,
+}
+
+/// Scripted games: the question asked in secret before an assessment round.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PublicQuestion {
+    pub text: String,
+    pub options: Vec<QuestionOption>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct QuestionOption {
+    pub id: String,
+    pub label: String,
+}
+
+/// Which game this table is playing, and what its four seats are called.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct PublicGame {
+    pub id: String,
+    pub title: String,
+    pub accent: String,
+    pub seats: SeatNames,
+    /// scripted games have no OAuth-specific side panels
+    pub scripted: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SeatNames {
+    pub client: String,
+    pub application: String,
+    pub idp: String,
+    pub mcp: String,
+}
+
+impl Default for SeatNames {
+    fn default() -> Self {
+        SeatNames { client: Role::Client.name().into(), application: Role::Application.name().into(), idp: Role::Idp.name().into(), mcp: Role::Mcp.name().into() }
+    }
+}
+
+impl SeatNames {
+    pub fn get(&self, r: Role) -> &str {
+        match r {
+            Role::Client => &self.client,
+            Role::Application => &self.application,
+            Role::Idp => &self.idp,
+            Role::Mcp => &self.mcp,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -740,6 +851,8 @@ pub struct PublicRound {
     pub ready_check: Option<ReadyCheck>,
     /// set while the token in flight is sealed (learning and assessment rounds)
     pub sealed: Option<Sealed>,
+    /// scripted games: the question to answer in secret before play (assessment rounds)
+    pub question: Option<PublicQuestion>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -754,6 +867,7 @@ pub struct PublicKeys {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicState {
+    pub game: PublicGame,
     pub room: String,
     /// public halves only; private keys never leave the server
     pub keys: PublicKeys,
@@ -775,6 +889,8 @@ pub struct PrivateView {
     pub hand: Vec<Card>,
     pub slips: Vec<Token>,
     pub my_guess: Option<Flow>,
+    /// scripted games: my answer to the round's question
+    pub my_pick: Option<String>,
     pub can_play: Vec<String>,
 }
 
@@ -803,6 +919,8 @@ pub enum ClientMessage {
     Tell,
     Host { action: HostAction, round: Option<u32> },
     Ready { ready: bool },
+    /// scripted games: answer the round's question
+    Pick { option: String },
     /// host only: end the game now and close the room for everyone
     End,
     Ping,

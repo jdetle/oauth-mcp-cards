@@ -7,6 +7,9 @@ use crate::validate::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[path = "script.rs"]
+mod script;
+
 pub const SIGV4_KEY_ID: &str = "ASIA-TASK-ROLE";
 pub const SIGV4_SERVICE: &str = "execute-api";
 pub const SIGV4_REGION: &str = "us-east-1";
@@ -106,6 +109,12 @@ pub struct Round {
     pub ready: Vec<String>,
     /// after the round: when it advances on its own (reset by any ready / not-ready click)
     pub ready_deadline: Option<i64>,
+    /// scripted games: answers to the round's question (player id, option id)
+    #[serde(default)]
+    pub picks: Vec<(String, String)>,
+    /// scripted games: the step where an intruder swaps a value this round, if any
+    #[serde(default)]
+    pub script_intrusion: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -118,7 +127,13 @@ pub struct Keys {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Game {
     pub room: String,
-    /// not persisted: reattached from the scenario files on restore
+    /// which game of the series this table is playing
+    #[serde(default = "default_game_id")]
+    pub game_id: String,
+    /// not persisted: reattached from the game pack on restore
+    #[serde(skip)]
+    pub pack: Option<Arc<crate::pack::Pack>>,
+    /// not persisted: reattached from the game pack on restore
     #[serde(skip)]
     pub scenarios: Arc<Vec<Scenario>>,
     pub players: Vec<Player>,
@@ -140,6 +155,9 @@ pub struct Game {
     id_fn: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
+fn default_game_id() -> String {
+    crate::pack::DEFAULT_GAME.to_string()
+}
 fn default_now_fn() -> Arc<dyn Fn() -> i64 + Send + Sync> {
     Arc::new(now_ms)
 }
@@ -272,6 +290,8 @@ impl Game {
         Game {
             room: room.to_string(),
             scenarios,
+            game_id: default_game_id(),
+            pack: None,
             players: vec![],
             host_id: None,
             started: false,
@@ -283,6 +303,33 @@ impl Game {
             keys: Keys { app: new_key_pair(), gateway: new_key_pair(), sigv4_secret: random_hex(20) },
             now_fn: Arc::new(now_ms),
             id_fn: Arc::new(random_id),
+        }
+    }
+
+    /// A table for one game of the series.
+    pub fn for_pack(room: &str, pack: Arc<crate::pack::Pack>) -> Self {
+        let mut g = Self::new(room, pack.scenarios.clone());
+        g.game_id = pack.info.id.clone();
+        g.pack = Some(pack);
+        g
+    }
+
+    /// After loading a saved game: give it back its rounds.
+    pub fn attach(&mut self, pack: Arc<crate::pack::Pack>) {
+        self.scenarios = pack.scenarios.clone();
+        self.game_id = pack.info.id.clone();
+        self.pack = Some(pack);
+    }
+
+    /// What this game calls a seat (the OAuth names unless the pack says otherwise).
+    pub fn seat(&self, role: Role) -> String {
+        self.pack.as_ref().and_then(|p| p.info.seats.get(&role)).map(|s| s.name.clone()).unwrap_or_else(|| role.name().to_string())
+    }
+
+    pub fn public_game(&self) -> PublicGame {
+        match &self.pack {
+            Some(p) => p.public(),
+            None => PublicGame { id: self.game_id.clone(), title: "OAuth for MCP".into(), accent: "#29f0ff".into(), seats: SeatNames::default(), scripted: false },
         }
     }
 
@@ -411,7 +458,7 @@ impl Game {
             RoundStatus::Identify => ROLES
                 .into_iter()
                 .filter_map(|role| r.seats.get(role))
-                .find(|id| is_bot(id) && !r.guesses.iter().any(|(g, _)| g == *id))
+                .find(|id| is_bot(id) && !r.guesses.iter().any(|(g, _)| g == *id) && !r.picks.iter().any(|(p, _)| p == *id))
                 .cloned(),
             RoundStatus::Playing => r.active_role.and_then(|role| r.seats.get(role)).filter(|id| is_bot(id)).cloned(),
             RoundStatus::Done => None,
@@ -424,6 +471,9 @@ impl Game {
         let mut rng = rand::thread_rng();
         let r = self.round.as_ref()?;
         let s = &self.scenarios[r.index];
+        if s.script.is_some() {
+            return self.script_sim_choice(sim, skill);
+        }
         if r.status == RoundStatus::Identify {
             let expected = s.expected_flows.clone().unwrap_or_default();
             let flow = match expected.first() {
@@ -665,8 +715,13 @@ impl Game {
             intrusion: None,
             ready: vec![],
             ready_deadline: None,
+            picks: vec![],
+            script_intrusion: None,
         };
-        if s.phase != Phase::Warmup && self.intruder_rate > 0.0 {
+        if let Some(sc) = s.script.clone() {
+            self.script_begin(&mut r, &sc, s.phase);
+        }
+        if s.script.is_none() && s.phase != Phase::Warmup && self.intruder_rate > 0.0 {
             use rand::Rng;
             let mut rng = rand::thread_rng();
             if rng.gen_bool(self.intruder_rate.clamp(0.0, 1.0)) {
@@ -692,7 +747,8 @@ impl Game {
         let title = if s.phase == Phase::Assessment { String::new() } else { format!(": {}", s.title) };
         Self::log(&mut r, None, &format!("Round {}{title}. {}", index + 1, s.text), Verdict::Info, None, None);
         if r.status == RoundStatus::Identify {
-            Self::log(&mut r, None, "Each player privately picks the flow they think applies.", Verdict::Info, None, None);
+            let what = if s.script.is_some() { "Each player privately answers the question first." } else { "Each player privately picks the flow they think applies." };
+            Self::log(&mut r, None, what, Verdict::Info, None, None);
         }
         if let Some(old) = self.round.take() {
             let offset = self.assessment_offset();
@@ -821,7 +877,7 @@ impl Game {
         let name = self.player(player_id).ok_or_else(|| GameError("Unknown player.".into()))?.name.clone();
         let r = self.round.as_mut().filter(|r| r.status != RoundStatus::Done).ok_or_else(|| GameError("No round in progress.".into()))?;
         let s = &scenarios[r.index];
-        if s.phase == Phase::Warmup {
+        if s.phase == Phase::Warmup || s.script.is_some() {
             return err("Spot the tell starts in the learning phase.");
         }
         if r.seats.role_of(player_id).is_none() {
@@ -930,7 +986,7 @@ impl Game {
             return None;
         }
         let run = Self::checks_run(r);
-        let skipped: Vec<CheckKind> = Self::relevant_checks(receiver, request).into_iter().filter(|k| !run.contains(k)).collect();
+        let skipped: Vec<String> = Self::relevant_checks(receiver, request).into_iter().filter(|k| !run.contains(k)).map(|k| k.label().to_string()).collect();
         let exposing: Vec<CheckKind> = [CheckKind::Audience, CheckKind::Scope, CheckKind::Expiry, CheckKind::Issuer, CheckKind::Subject]
             .into_iter()
             .filter(|k| Self::rules_for(*k).iter().any(|rule| failures.contains(rule)))
@@ -944,7 +1000,7 @@ impl Game {
             (false, true) => DiligenceTag::Hunch,
             (false, false) => return None,
         };
-        Some(Diligence { tag, skipped, would_catch: if tag == DiligenceTag::Breach { exposing } else { vec![] } })
+        Some(Diligence { tag, skipped, would_catch: if tag == DiligenceTag::Breach { exposing.iter().map(|k| k.label().to_string()).collect() } else { vec![] } })
     }
 
     /// The intruder's swap: same token, one defect.
@@ -975,6 +1031,9 @@ impl Game {
     // ---- play -------------------------------------------------------------------------------
 
     pub fn playable(r: &Round, role: Role, card: &Card) -> bool {
+        if matches!(card.card_type, CardType::Script | CardType::ScriptCheck) {
+            return Self::script_playable(r, role, card);
+        }
         if r.status != RoundStatus::Playing || r.active_role != Some(role) {
             return false;
         }
@@ -1003,6 +1062,9 @@ impl Game {
     }
 
     pub fn play(&mut self, player_id: &str, card_id: &str) -> Result<(), GameError> {
+        if self.is_scripted() {
+            return self.script_play(player_id, card_id);
+        }
         let r = self.round.as_ref().ok_or_else(|| GameError("No round in progress.".into()))?;
         match r.status {
             RoundStatus::Identify => return err("Waiting for everyone's flow guess."),
@@ -1105,6 +1167,8 @@ impl Game {
                     }],
                 }
             }
+            // scripted games judge by the pack's authored verdicts (script.rs), never here
+            InFlight::Packet { .. } => Validation { valid: true, failures: vec![], checks: vec![] },
         }
     }
 
@@ -1450,8 +1514,8 @@ impl Game {
         }
         // a breach: say which skipped check would have shown it
         if let Some(d) = dil.as_ref().filter(|d| d.tag == DiligenceTag::Breach) {
-            let names = |ks: &[CheckKind]| ks.iter().map(|k| k.label()).collect::<Vec<_>>().join(", ");
-            let missed: Vec<CheckKind> = d.would_catch.iter().copied().filter(|k| d.skipped.contains(k)).collect();
+            let names = |ks: &[String]| ks.join(", ");
+            let missed: Vec<String> = d.would_catch.iter().filter(|k| d.skipped.contains(k)).cloned().collect();
             let extra = if !missed.is_empty() {
                 format!(" Nothing forced a check, and none was made on: {}. Checking {} would have shown it.", names(&d.skipped), names(&missed))
             } else if !d.would_catch.is_empty() {
@@ -1537,7 +1601,7 @@ impl Game {
             Some(false) => Verdict::Incorrect,
             None => Verdict::Neutral,
         };
-        let names = |ks: &[CheckKind]| ks.iter().map(|k| k.label()).collect::<Vec<_>>().join(", ");
+        let names = |ks: &[String]| ks.join(", ");
         let detail = if verdict.correct == Some(false) {
             verdict.explanation.clone()
         } else {
@@ -1704,7 +1768,7 @@ impl Game {
         let broke = r.moves.iter().find(|m| m.correct == Some(false)).cloned();
         let mut awards = vec![];
         for m in r.moves.iter().filter(|m| m.correct == Some(true)) {
-            awards.push(Award { player_id: m.player_id.clone(), name: name_of(self, &m.player_id), points: 1, why: format!("Correct call as {}", m.role.name()) });
+            awards.push(Award { player_id: m.player_id.clone(), name: name_of(self, &m.player_id), points: 1, why: format!("Correct call as {}", self.seat(m.role)) });
         }
         for (id, why) in &r.bonuses {
             awards.push(Award { player_id: id.clone(), name: name_of(self, id), points: 1, why: why.clone() });
@@ -1731,12 +1795,36 @@ impl Game {
             ),
             None => String::new(),
         };
+        // scripted games: the answers to the round's question
+        let mut picks = vec![];
+        let mut answer = None;
+        if let Some(q) = s.script.as_ref().and_then(|sc| sc.question.clone()) {
+            let label = |id: &str| q.options.iter().find(|o| o.id == id).map(|o| o.label.clone()).unwrap_or_default();
+            for (id, opt) in r.picks.clone() {
+                let correct = opt == q.answer;
+                picks.push(PickResult { player_id: id.clone(), name: name_of(self, &id), option: label(&opt), correct });
+                if correct {
+                    if let Some(p) = self.players.iter_mut().find(|p| p.id == id) {
+                        p.score.identify += 1;
+                    }
+                    awards.push(Award { player_id: id.clone(), name: name_of(self, &id), points: 1, why: "Answered the question".into() });
+                }
+            }
+            answer = Some(format!("{}. {}", label(&q.answer), q.why));
+        }
+        let held_text = s.script.as_ref().map(|sc| sc.held.clone());
+        let reveal = r.intrusion.as_ref().filter(|i| i.applied).map(Self::intrusion_text).or_else(|| self.script_reveal(&r));
         let success = broke.is_none();
         r.result = Some(RoundResult {
+            picks,
+            answer,
             success,
             failed_step: broke.as_ref().map(|b| FailedStep { role: b.role, player_name: name_of(self, &b.player_id), text: b.label.clone() }),
             explanation: match &broke {
-                None => format!("Chain unbroken end to end.{flow_text}"),
+                None => match &held_text {
+                    Some(h) => format!("Chain unbroken end to end. {h}"),
+                    None => format!("Chain unbroken end to end.{flow_text}"),
+                },
                 Some(b) => format!(
                     "{}{flow_text}",
                     b.explanation.clone().unwrap_or_else(|| explain(b.reason.as_deref().unwrap_or("")).to_string())
@@ -1748,15 +1836,15 @@ impl Game {
             teaches: s.teaches.clone(),
             guesses,
             awards,
-            traps: r.moves.iter().filter(|m| m.trap).map(|m| format!("{} played a trap: \"{}\"", m.role.name(), m.label)).collect(),
-            intrusion: r.intrusion.as_ref().filter(|i| i.applied).map(Self::intrusion_text),
+            traps: r.moves.iter().filter(|m| m.trap).map(|m| format!("{} played a trap: \"{}\"", self.seat(m.role), m.label)).collect(),
+            intrusion: reveal.clone(),
         });
-        if let Some(text) = r.intrusion.as_ref().filter(|i| i.applied).map(Self::intrusion_text) {
+        if let Some(text) = reveal {
             Self::log(&mut r, None, &text, Verdict::Info, None, None);
         }
         let line = match &broke {
             None => ("Round succeeded: the chain held.".to_string(), Verdict::Correct),
-            Some(b) => (format!("Chain broken at {}.", b.role.name()), Verdict::Incorrect),
+            Some(b) => (format!("Chain broken at {}.", self.seat(b.role)), Verdict::Incorrect),
         };
         Self::log(&mut r, None, &line.0, line.1, None, None);
         if self.started && r.index + 1 < self.scenarios.len() {
@@ -1801,8 +1889,12 @@ impl Game {
                     .collect();
                 Sealed { fields, revealed }
             });
-            let in_flight = r.in_flight.as_ref().map(|f| if live { mask_item(f, &shown) } else { f.clone() });
-            let slips = if live {
+            let playing = r.status != RoundStatus::Done;
+            let packet = |f: &InFlight| matches!(f, InFlight::Packet { .. });
+            let in_flight = r.in_flight.as_ref().map(|f| if packet(f) { script::mask_packet(f, playing) } else if live { mask_item(f, &shown) } else { f.clone() });
+            let slips = if s.script.is_some() {
+                r.slips.iter().map(|sl| Slip { from: sl.from, to: sl.to, label: sl.label.clone(), item: script::mask_packet(&sl.item, playing) }).collect()
+            } else if live {
                 r.slips
                     .iter()
                     .map(|sl| if carries_sealed_token(&sl.item) { Slip { from: sl.from, to: sl.to, label: sealed_label(&sl.item), item: mask_item(&sl.item, &[]) } } else { sl.clone() })
@@ -1822,16 +1914,18 @@ impl Game {
                 in_flight,
                 slips,
                 log: r.log.clone(),
-                identify_submitted: r.guesses.iter().map(|(id, _)| id.clone()).collect(),
+                identify_submitted: r.guesses.iter().map(|(id, _)| id.clone()).chain(r.picks.iter().map(|(id, _)| id.clone())).collect(),
+                question: s.script.as_ref().and_then(|sc| sc.question.as_ref()).map(|q| PublicQuestion { text: q.text.clone(), options: q.options.clone() }),
                 tell_awarded_to: r.tell_awarded_to.clone(),
                 seats: r.seats.clone(),
                 result: r.result.clone(),
-                flow_choices: if s.phase == Phase::Assessment { FLOWS.to_vec() } else { vec![] },
-                tell_enabled: s.phase != Phase::Warmup && r.status != RoundStatus::Done,
+                flow_choices: if s.phase == Phase::Assessment && s.script.is_none() { FLOWS.to_vec() } else { vec![] },
+                tell_enabled: s.script.is_none() && s.phase != Phase::Warmup && r.status != RoundStatus::Done,
                 ready_check: self.ready_view(connected),
             }
         });
         PublicState {
+            game: self.public_game(),
             room: self.room.clone(),
             keys: PublicKeys { application: self.keys.app.public_key.clone(), gateway: self.keys.gateway.public_key.clone() },
             started: self.started,
@@ -1887,6 +1981,7 @@ impl Game {
                 _ => vec![],
             },
             my_guess: r.and_then(|r| r.guesses.iter().find(|(id, _)| id == player_id).map(|g| g.1)),
+            my_pick: r.and_then(|r| r.picks.iter().find(|(id, _)| id == player_id).map(|p| p.1.clone())),
             can_play,
             hand,
         }
@@ -1960,6 +2055,7 @@ pub fn describe(f: &InFlight) -> String {
         None => "no token".into(),
     };
     match f {
+        InFlight::Packet { title, .. } => title.clone(),
         InFlight::Request { token, .. } => format!("Request + {}", tok(token)),
         InFlight::TokenRequest { audience, pkce, .. } => {
             format!("Authorization request (resource {audience}, {} PKCE)", if *pkce { "with" } else { "without" })

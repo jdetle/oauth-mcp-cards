@@ -3,7 +3,7 @@
 //! Env:
 //!   PORT            (default 8080)
 //!   STATIC_DIR      Next.js static export to serve (default ../out)
-//!   SCENARIOS_DIR   scenario JSON files (default ../scenarios)
+//!   GAMES_DIR       the series: one folder per game, each with game.json and rounds/ (default ../games)
 //!   DEV_ORIGIN      allow this browser origin with credentials (e.g. http://localhost:3000)
 //!   SECURE_COOKIES  "1" to mark session cookies Secure (set when served over HTTPS)
 //!   INTERNAL_TOKEN  lets load tests skip the per-IP room-creation limit
@@ -29,6 +29,7 @@ mod crypto;
 mod engine;
 mod explain;
 mod scenario;
+mod pack;
 mod server;
 mod store;
 mod telemetry;
@@ -59,22 +60,24 @@ async fn main() {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let port: u16 = env("PORT").and_then(|p| p.parse().ok()).unwrap_or(8080);
     let static_dir = PathBuf::from(env("STATIC_DIR").unwrap_or_else(|| "../out".into()));
-    let scenarios_dir = PathBuf::from(env("SCENARIOS_DIR").unwrap_or_else(|| "../scenarios".into()));
+    let games_dir = PathBuf::from(env("GAMES_DIR").unwrap_or_else(|| "../games".into()));
 
-    let scenarios = match scenario::load_dir(&scenarios_dir) {
-        Ok(s) => s,
+    // a broken game pack stops the server here, rather than a table getting stuck mid-round
+    let packs = match pack::load_all(&games_dir) {
+        Ok(p) => p,
         Err(e) => {
-            eprintln!("scenario error: {e}");
+            eprintln!("game pack error: {e}");
             std::process::exit(1);
         }
     };
-    eprintln!("loaded {} scenarios from {}", scenarios.len(), scenarios_dir.display());
+    let rounds: usize = packs.values().map(|p| p.scenarios.len()).sum();
+    eprintln!("loaded {} games ({rounds} rounds) from {}: {}", packs.len(), games_dir.display(), packs.keys().cloned().collect::<Vec<_>>().join(", "));
     if !static_dir.join("index.html").exists() {
         eprintln!("note: no front end at {} (run `bun run build`); API and sockets still work", static_dir.display());
     }
 
     telemetry::init(telemetry::Settings::from_env());
-    telemetry::event("server.started", serde_json::json!({ "scenarios": scenarios.len() }));
+    telemetry::event("server.started", serde_json::json!({ "games": packs.len(), "rounds": rounds }));
     let cfg = server::Config {
         internal_token: env("INTERNAL_TOKEN"),
         secure_cookies: env("SECURE_COOKIES").as_deref() == Some("1"),
@@ -96,7 +99,7 @@ async fn main() {
         if cfg.admin_hash.is_some() { "enabled" } else { "disabled (set ADMIN_PASSWORD_HASH)" },
         if cfg.turnstile_site_key.is_some() && cfg.turnstile_secret.is_some() { "enabled" } else { "disabled" }
     );
-    let state = server::AppState::new(scenarios, cfg);
+    let state = server::AppState::new(packs, cfg);
     state.preload().await;
     server::spawn_reaper(state.clone());
     server::spawn_saver(state.clone());

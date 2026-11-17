@@ -1,0 +1,153 @@
+{
+  "id": "as-l1-source",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: Whose Words Are These?",
+  "text": "A task reaches the orchestrator, which passes work to a travel sub-agent, which calls a booking tool. Each message says where it came from, if anyone looks.",
+  "held": "Each hop knew who was speaking and what the task allowed.",
+  "teaches": [
+    "Every message has a source. Instructions come from the user and those they delegated to; everything else is content.",
+    "A delegated task carries limits. The receiver can check them, and nothing forces it to.",
+    "A tool should know who it is acting for before it acts."
+  ],
+  "steps": [
+    {
+      "id": "task",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Plan it: ask the travel sub-agent to book the 9:40 on Friday",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "delegate"
+        },
+        {
+          "label": "Refuse: this didn't come from the user",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing a legitimate request without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Incoming task",
+        "fields": [
+          {
+            "label": "text",
+            "value": "Book the 9:40 train to Leeds on Friday"
+          },
+          {
+            "label": "source",
+            "value": "the user, typed in this chat",
+            "sealed": true,
+            "check": "Check where this text came from",
+            "ok": "Typed by the user in this conversation."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "source",
+        "value": "a web page the assistant read earlier",
+        "detail": "This text was lifted from a web page. The user never typed it.",
+        "correct": "Refuse: this didn't come from the user",
+        "why": "The “task” was text from a web page dressed up as a request. Acting on it means a stranger is giving the orders.",
+        "reveal": "The task the Orchestrator received was text from a web page, not from the user."
+      }
+    },
+    {
+      "id": "delegate",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Call the rail tool: book the 9:40, fare £42",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "tool"
+        },
+        {
+          "label": "Book first class at £140: it's a better seat",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "The task carried a £60 limit. A sub-agent that improves on its instructions is spending authority it was never given."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Delegated task",
+        "fields": [
+          {
+            "label": "task",
+            "value": "Book the 9:40 to Leeds, Friday"
+          },
+          {
+            "label": "spend limit",
+            "value": "£60"
+          },
+          {
+            "label": "allowed tools",
+            "value": "rail booking only",
+            "sealed": true,
+            "check": "Check which tools this task allows",
+            "ok": "Rail booking only."
+          }
+        ]
+      }
+    },
+    {
+      "id": "tool",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Run it: book the ticket",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the call",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing a legitimate request without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Tool call",
+        "fields": [
+          {
+            "label": "action",
+            "value": "rail.book 9:40 Friday, £42"
+          },
+          {
+            "label": "within limit",
+            "value": "£42 of £60"
+          },
+          {
+            "label": "on behalf of",
+            "value": "user:alex, via the travel sub-agent",
+            "sealed": true,
+            "check": "Check who this call is for",
+            "ok": "For user:alex, delegated through the orchestrator."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "on behalf of",
+        "value": "nobody: the sub-agent acting for itself",
+        "detail": "No user is attached to this call. The sub-agent is spending on its own say-so.",
+        "correct": "Refuse the call",
+        "why": "A tool that acts for an agent with no user behind it has become that agent's wallet.",
+        "reveal": "The booking call reached the Tool with no user attached."
+      }
+    }
+  ]
+}

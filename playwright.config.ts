@@ -13,7 +13,7 @@ const BASE_PATH = (process.env.E2E_BASE_PATH ?? "").replace(/\/$/, "");
 export const E2E_ADMIN_PASSWORD = "fixture-admin-password";
 const adminHash = external ? "" : execFileSync("./server/target/release/oauth-mcp-server", ["hash-password"], { input: `${E2E_ADMIN_PASSWORD}\n` }).toString().trim();
 
-const serverEnv = { STATIC_DIR: "../out", SCENARIOS_DIR: "../scenarios", INTERNAL_TOKEN: TOKEN, SIM_SKILL: "1", SIM_DELAY_MS: "150", READY_TIMEOUT_MS: "20000", ADMIN_PASSWORD_HASH: adminHash, BASE_PATH };
+const serverEnv = { STATIC_DIR: "../out", GAMES_DIR: "../games", INTERNAL_TOKEN: TOKEN, SIM_SKILL: "1", SIM_DELAY_MS: "150", READY_TIMEOUT_MS: "20000", ADMIN_PASSWORD_HASH: adminHash, BASE_PATH };
 
 export default defineConfig({
   testDir: "e2e",

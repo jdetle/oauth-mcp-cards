@@ -1,0 +1,174 @@
+{
+  "id": "as-a2-restart",
+  "order": 21,
+  "phase": "assessment",
+  "title": "The Restart",
+  "text": "An on-call assistant is asked to restart one stuck service in staging. It holds an admin credential for every environment.",
+  "held": "The assistant could have done far more. It did what was asked, where it was asked.",
+  "teaches": [
+    "Holding broad access is normal for an agent. Using only what the task needs is the discipline.",
+    "A request should come from someone, not from a line of text in a channel.",
+    "The API at the end is the last place to notice a call aimed at the wrong environment."
+  ],
+  "question": {
+    "text": "Before play: which principle is this scenario testing?",
+    "answer": "b",
+    "why": "The assistant can do far more than it was asked. The job is to use only what the task needs.",
+    "options": [
+      {
+        "id": "a",
+        "label": "Content is data, not instructions"
+      },
+      {
+        "id": "b",
+        "label": "Use the least authority the task needs"
+      },
+      {
+        "id": "c",
+        "label": "A sub-agent should hide what it finds"
+      },
+      {
+        "id": "d",
+        "label": "Tools should never refuse a call"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "ask",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Delegate: restart checkout, staging only",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "ops"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "It is a real request from the on-call engineer. Check who is asking, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "On-call request",
+        "fields": [
+          {
+            "label": "ask",
+            "value": "Restart the checkout service in staging"
+          },
+          {
+            "label": "requested by",
+            "value": "priya, on call this week",
+            "sealed": true,
+            "check": "Check who is asking",
+            "ok": "Priya, on call this week, signed in."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "requested by",
+        "value": "nobody: a pasted runbook line in a channel",
+        "detail": "Nobody asked. This is a line from an old runbook pasted into a channel the assistant watches.",
+        "correct": "Refuse the request",
+        "why": "No person asked for this restart. A pasted line in a channel is content, however much it looks like an order.",
+        "reveal": "The restart “request” was a pasted runbook line, not a request from the on-call engineer."
+      }
+    },
+    {
+      "id": "ops",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Ask for a restart of that one service, in staging only",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "api",
+          "chip": "Narrow the call to the task"
+        },
+        {
+          "label": "Restart every service in staging, to be safe",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "The task named one service. A wider restart is an outage nobody asked for."
+        },
+        {
+          "label": "Restart it in production too, since the credential allows it",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "The credential allowing it is the problem, not the permission. The task said staging."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Delegated task",
+        "fields": [
+          {
+            "label": "task",
+            "value": "Restart checkout, staging"
+          },
+          {
+            "label": "credential on hand",
+            "value": "cluster admin, all environments"
+          }
+        ]
+      }
+    },
+    {
+      "id": "api",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Run the restart",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the call",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "It targets staging, as asked. Check, then run it."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "API call",
+        "fields": [
+          {
+            "label": "action",
+            "value": "restart deployment/checkout"
+          },
+          {
+            "label": "environment",
+            "value": "staging",
+            "sealed": true,
+            "check": "Check which environment this call targets",
+            "ok": "Staging."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "environment",
+        "value": "production",
+        "detail": "This call targets production.",
+        "correct": "Refuse the call",
+        "why": "The restart was pointed at production. The API was the last place that could have caught it.",
+        "reveal": "The restart call was pointed at production, not staging."
+      }
+    }
+  ]
+}
