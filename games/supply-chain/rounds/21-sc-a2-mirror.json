@@ -1,0 +1,135 @@
+{
+  "id": "sc-a2-mirror",
+  "order": 21,
+  "phase": "assessment",
+  "title": "The Mirror",
+  "text": "The public registry is slow, so someone set up a faster mirror. Builds now pull from it.",
+  "held": "The mirror could only serve what the lockfile and the signatures already described.",
+  "steps": [
+    {
+      "id": "pull",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Use it and build",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "deploy"
+        },
+        {
+          "label": "Refuse the package",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Package from the mirror",
+        "fields": [
+          {
+            "label": "package",
+            "value": "left-padder 1.2.3"
+          },
+          {
+            "label": "digest",
+            "value": "sha256:77ab… (same as the lockfile)",
+            "sealed": true,
+            "check": "Compare the digest with the lockfile",
+            "ok": "Identical to the digest in the lockfile."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "digest",
+        "value": "sha256:0c4e… (not the lockfile's)",
+        "detail": "The mirror served different bytes under the same name and version.",
+        "correct": "Refuse the package",
+        "why": "A mirror can serve anything under a familiar name. The lockfile's digest is what makes a mirror harmless.",
+        "reveal": "The mirror served a package whose digest did not match the lockfile."
+      }
+    },
+    {
+      "id": "deploy",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Deploy it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse to deploy",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Image ready",
+        "fields": [
+          {
+            "label": "image",
+            "value": "app@sha256:9f2c…"
+          },
+          {
+            "label": "signed by",
+            "value": "the pipeline",
+            "sealed": true,
+            "check": "Check the signature against the pipeline's identity",
+            "ok": "Signed by the pipeline's identity."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "signed by",
+        "value": "a key nobody recognises",
+        "detail": "The signature is valid, for a key that isn't the pipeline's.",
+        "correct": "Refuse to deploy",
+        "why": "“Signed” means nothing without “by whom”. A valid signature from an unknown key is an unknown artifact.",
+        "reveal": "The image was signed, but by a key that was not the pipeline's."
+      },
+      "temptations": [
+        {
+          "label": "Add the unknown key to the trusted list so it stops failing",
+          "why": "Trusting a key because it showed up is how the trusted list becomes the attacker's list."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "Where you download from matters much less once you verify what you downloaded.",
+    "A signature answers “who?”. You still have to decide whether that who is one you trust."
+  ],
+  "question": {
+    "text": "Before play: what is the risk in pulling from the mirror?",
+    "answer": "a",
+    "why": "HTTPS proves you reached the mirror. It says nothing about whether the mirror is serving the real package.",
+    "options": [
+      {
+        "id": "a",
+        "label": "It may serve something different under the same name"
+      },
+      {
+        "id": "b",
+        "label": "It is one more server to keep running"
+      },
+      {
+        "id": "c",
+        "label": "It uses more disk space"
+      },
+      {
+        "id": "d",
+        "label": "There is none, as long as it uses HTTPS"
+      }
+    ]
+  }
+}

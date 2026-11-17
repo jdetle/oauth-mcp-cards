@@ -1,0 +1,101 @@
+{
+  "id": "sc-w1-release",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: The Release",
+  "text": "A developer tags version 2.4.0. The build system builds it and the deployer ships it.",
+  "held": "What ran in production was built by the pipeline from the tagged commit.",
+  "steps": [
+    {
+      "id": "tag",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Push the signed tag v2.4.0",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "build"
+        },
+        {
+          "label": "Upload a zip you built on your laptop",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A build from a laptop can't be reproduced or inspected by anyone else. The pipeline builds; people push commits."
+        }
+      ]
+    },
+    {
+      "id": "build",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Build from the tagged commit, in a clean runner",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "deploy"
+        },
+        {
+          "label": "Build from whatever is already on the runner's disk",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Leftovers from earlier builds are inputs nobody chose. A clean runner means the commit is the only source."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Build request",
+        "fields": [
+          {
+            "label": "tag",
+            "value": "v2.4.0"
+          },
+          {
+            "label": "commit",
+            "value": "4be1f0a"
+          }
+        ]
+      }
+    },
+    {
+      "id": "deploy",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Deploy the artifact the pipeline produced",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Deploy the build a teammate sent in chat instead",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A file from chat has no history. However well-meant, nobody can say what is in it."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Artifact",
+        "fields": [
+          {
+            "label": "name",
+            "value": "app-2.4.0"
+          },
+          {
+            "label": "built by",
+            "value": "the pipeline, from commit 4be1f0a"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "id": "sc-l4-log",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: Seen in Public",
+  "text": "A new base image arrives, signed. The registry can look for that signature in the public log, and the deployer can ask what is inside the image.",
+  "held": "The signature was made in the open, and the contents were known before rollout.",
+  "steps": [
+    {
+      "id": "accept",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Accept the image",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "rollout"
+        },
+        {
+          "label": "Reject the image",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "New base image",
+        "fields": [
+          {
+            "label": "image",
+            "value": "base:12"
+          },
+          {
+            "label": "signature",
+            "value": "valid"
+          },
+          {
+            "label": "transparency log",
+            "value": "entry present, made at build time",
+            "sealed": true,
+            "check": "Look the signature up in the transparency log",
+            "ok": "Logged when it was signed. Anyone can see that it was."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "transparency log",
+        "value": "no entry",
+        "detail": "Signed, but never logged. Nobody could have noticed this signature being made.",
+        "correct": "Reject the image",
+        "why": "A valid signature that isn't in the public log may have been made in secret with a stolen key. The log is how a theft gets noticed.",
+        "reveal": "The base image's signature was valid but had never been recorded in the transparency log."
+      }
+    },
+    {
+      "id": "rollout",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Roll it out",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Hold the rollout",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Rollout",
+        "fields": [
+          {
+            "label": "image",
+            "value": "base:12"
+          },
+          {
+            "label": "fleet",
+            "value": "140 services"
+          },
+          {
+            "label": "known flaws",
+            "value": "nothing above low severity",
+            "sealed": true,
+            "check": "Check the image's contents list against known flaws",
+            "ok": "Scan of the SBOM is clean: nothing above low."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "known flaws",
+        "value": "critical: remote code execution in an image library",
+        "detail": "The contents list includes a library with a critical, exploitable flaw.",
+        "correct": "Hold the rollout",
+        "why": "The image was authentic and still dangerous. Knowing what is inside is a separate question from knowing who built it.",
+        "reveal": "The base image contained a library with a critical known flaw."
+      },
+      "temptations": [
+        {
+          "label": "Turn the admission policy off for this one rollout",
+          "why": "A policy that is switched off when it is inconvenient protects nothing. The exception becomes the route in."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "A signature proves who signed. The transparency log proves it was done in the open.",
+    "Authentic is not the same as safe: a correctly built image can still contain a known flaw.",
+    "An SBOM lets you answer “are we affected?” in minutes."
+  ]
+}

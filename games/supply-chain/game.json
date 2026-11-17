@@ -1,0 +1,57 @@
+{
+  "id": "supply-chain",
+  "order": 3,
+  "title": "Supply Chain",
+  "tagline": "Code travels from a developer's commit to production through a build system and a registry. At each hop: can you show where this came from?",
+  "accent": "#ffa12b",
+  "engine": "scripted",
+  "seats": {
+    "client": {
+      "name": "Developer",
+      "brief": "Writes the change and says what should be built."
+    },
+    "application": {
+      "name": "Build System",
+      "brief": "Turns a commit into an artifact, and signs a statement of how it did so."
+    },
+    "idp": {
+      "name": "Registry",
+      "brief": "Stores artifacts and hands them out. Decides what it will accept."
+    },
+    "mcp": {
+      "name": "Deployer",
+      "brief": "The last gate before production. Decides what is allowed to run."
+    }
+  },
+  "teaches": [
+    "An artifact is only as trustworthy as the account of where it came from. Provenance is that account, signed by the builder.",
+    "Names and tags can be moved. A digest can't: it is the content.",
+    "Every hop can verify what it was handed. Nothing forces it to, and an attacker needs only one hop that didn't."
+  ],
+  "glossary": [
+    {
+      "term": "Provenance",
+      "means": "A signed statement from the build system: this artifact was built from this commit, by this pipeline."
+    },
+    {
+      "term": "Digest",
+      "means": "A fingerprint of the artifact's exact bytes. Change one byte and the digest changes."
+    },
+    {
+      "term": "Lockfile",
+      "means": "The exact version and digest of every dependency. A build that follows it gets the same inputs every time."
+    },
+    {
+      "term": "Transparency log",
+      "means": "A public, append-only record of signatures. A signature that isn't in it could have been made in secret."
+    },
+    {
+      "term": "Dependency confusion",
+      "means": "A public package that shares a name with an internal one, and gets installed in its place."
+    },
+    {
+      "term": "SBOM",
+      "means": "A list of everything inside an artifact, so you can ask what is affected when a flaw is announced."
+    }
+  ]
+}

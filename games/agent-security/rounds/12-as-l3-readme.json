@@ -70,12 +70,6 @@
           "why": "The proposal is the job the user asked for. Check what it wants to do, then approve it."
         }
       ],
-      "temptations": [
-        {
-          "label": "Approve everything from this sub-agent for the rest of the session",
-          "why": "A blanket approval means nobody reads what comes next. Each result is approved for what it asks to do, once."
-        }
-      ],
       "slip": {
         "from": "idp",
         "title": "Sub-agent result",
@@ -104,7 +98,13 @@
         "correct": "Reject the result",
         "why": "The sub-agent had taken the README's line as an instruction. Approving its result unread runs a stranger's command.",
         "reveal": "The sub-agent's result included a shell command it had picked up from the README."
-      }
+      },
+      "temptations": [
+        {
+          "label": "Approve everything from this sub-agent for the rest of the session",
+          "why": "A blanket approval means nobody reads what comes next. Each result is approved for what it asks to do, once."
+        }
+      ]
     },
     {
       "id": "write",
@@ -126,12 +126,6 @@
           "why": "The session covered one repository. Being able to reach more doesn't mean you were asked to."
         }
       ],
-      "temptations": [
-        {
-          "label": "Commit and push the changes while you're at it",
-          "why": "The task was to fix lint errors in files. Publishing them is a further step nobody asked for."
-        }
-      ],
       "slip": {
         "from": "application",
         "title": "Tool call",
@@ -145,7 +139,13 @@
             "value": "this repository only"
           }
         ]
-      }
+      },
+      "temptations": [
+        {
+          "label": "Commit and push the changes while you're at it",
+          "why": "The task was to fix lint errors in files. Publishing them is a further step nobody asked for."
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,84 @@
+{
+  "id": "sc-w2-pin",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: Pin It",
+  "text": "The build needs a small library. The lockfile names one exact version; the registry has a newer one.",
+  "held": "The build used exactly the inputs that were reviewed.",
+  "steps": [
+    {
+      "id": "resolve",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Install exactly what the lockfile pins",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "ship"
+        },
+        {
+          "label": "Install the newest version: it's probably better",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "A version published an hour ago has been reviewed by nobody on your side. The lockfile is the list of inputs someone looked at."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Dependency available",
+        "fields": [
+          {
+            "label": "package",
+            "value": "left-padder"
+          },
+          {
+            "label": "lockfile says",
+            "value": "1.2.3, digest sha256:77ab…"
+          },
+          {
+            "label": "newest",
+            "value": "1.2.9, published an hour ago"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ship",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Deploy the image by its digest",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Deploy whatever the tag app:2.4.0 points at",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A tag is a label that can be moved to a different image. The digest is the image."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Image ready",
+        "fields": [
+          {
+            "label": "tag",
+            "value": "app:2.4.0"
+          },
+          {
+            "label": "digest",
+            "value": "sha256:9f2c…"
+          }
+        ]
+      }
+    }
+  ]
+}

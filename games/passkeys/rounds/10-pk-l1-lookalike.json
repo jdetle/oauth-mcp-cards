@@ -1,0 +1,148 @@
+{
+  "id": "pk-l1-lookalike",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: The Look-Alike",
+  "text": "A sign-in page asks for Alex's passkey. The browser states where the page came from, the authenticator looks for a key for that site, and the website checks what comes back.",
+  "held": "The request, the key and the signed answer all named the same site.",
+  "steps": [
+    {
+      "id": "carry",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Forward it with the origin from the address bar",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "sign"
+        },
+        {
+          "label": "Forward it with the site name written on the page",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "The words on a page are the attacker's to write. The origin comes from where the page was actually loaded."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Sign-in request",
+        "fields": [
+          {
+            "label": "page says",
+            "value": "Sign in to Shop"
+          },
+          {
+            "label": "challenge",
+            "value": "fresh, random"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sign",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Sign with shop.example's key",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "verify"
+        },
+        {
+          "label": "Refuse: there is no key for this site",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Sign request",
+        "fields": [
+          {
+            "label": "challenge",
+            "value": "fresh, random"
+          },
+          {
+            "label": "origin",
+            "value": "https://shop.example",
+            "sealed": true,
+            "check": "Look up which site this request is from",
+            "ok": "https://shop.example: you hold a key for it."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "origin",
+        "value": "https://shop-example.login-help.net",
+        "detail": "No key was ever made for this address.",
+        "correct": "Refuse: there is no key for this site",
+        "why": "A passkey answers only the site it was made for. The look-alike gets nothing, however convincing its page.",
+        "reveal": "The sign-in page was a look-alike at shop-example.login-help.net."
+      }
+    },
+    {
+      "id": "verify",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Sign Alex in",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject the sign-in",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Signed response",
+        "fields": [
+          {
+            "label": "signature",
+            "value": "valid for Alex's public key"
+          },
+          {
+            "label": "origin in the signed data",
+            "value": "https://shop.example",
+            "sealed": true,
+            "check": "Read the origin inside the signed data",
+            "ok": "Signed for https://shop.example."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "origin in the signed data",
+        "value": "https://shop-example.login-help.net",
+        "detail": "The signature was made for a different origin and relayed here.",
+        "correct": "Reject the sign-in",
+        "why": "The origin is part of what gets signed so that the website can tell when an answer was made for somewhere else.",
+        "reveal": "The signed response had been made for a look-alike origin and relayed to the real site."
+      },
+      "temptations": [
+        {
+          "label": "Skip the origin check when the signature is valid",
+          "why": "A valid signature over the wrong origin is exactly what a relay produces. Valid is not the same as meant for you."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "The browser, not the page, states the origin.",
+    "The authenticator has one key per site, so a look-alike has nothing to ask for.",
+    "The website checks the origin inside the signed data, not just the signature."
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "id": "pk-l3-who",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: Who Is Holding It?",
+  "text": "Alex's bank asks for a passkey to approve a payment. Having the phone is one thing; being Alex is another.",
+  "held": "The authenticator checked it was Alex, said so in what it signed, and the bank read it.",
+  "steps": [
+    {
+      "id": "verify",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Sign, marking the user as verified",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "approve"
+        },
+        {
+          "label": "Refuse to sign",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Sign request: approve a payment",
+        "fields": [
+          {
+            "label": "site",
+            "value": "https://bank.example"
+          },
+          {
+            "label": "asks for",
+            "value": "user verification"
+          },
+          {
+            "label": "user check",
+            "value": "fingerprint matched",
+            "sealed": true,
+            "check": "Verify the user (fingerprint or PIN)",
+            "ok": "The fingerprint matches the enrolled user."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "user check",
+        "value": "no match after three attempts",
+        "detail": "The fingerprint did not match.",
+        "correct": "Refuse to sign",
+        "why": "Someone has the phone. That is possession, not the person; the check is what tells them apart.",
+        "reveal": "Whoever was holding the phone failed the fingerprint check."
+      },
+      "temptations": [
+        {
+          "label": "Mark the user as verified to skip the prompt",
+          "why": "That flag is the authenticator's word that it checked. Setting it without checking makes every site that trusts it wrong."
+        }
+      ]
+    },
+    {
+      "id": "approve",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Approve the payment",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Decline until the user is verified",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Signed response",
+        "fields": [
+          {
+            "label": "signature",
+            "value": "valid"
+          },
+          {
+            "label": "user-verified flag",
+            "value": "set",
+            "sealed": true,
+            "check": "Read the user-verified flag in the signed data",
+            "ok": "The authenticator says it verified the user."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "user-verified flag",
+        "value": "not set: presence only",
+        "detail": "The authenticator only confirmed that someone touched it.",
+        "correct": "Decline until the user is verified",
+        "why": "For a payment the bank asked for verification. A touch shows someone was there, not who.",
+        "reveal": "The response confirmed presence only; the bank had asked for the user to be verified."
+      }
+    }
+  ],
+  "teaches": [
+    "Presence means someone touched the device. Verification means the device checked who.",
+    "The website decides which it needs, and has to read which it got."
+  ]
+}

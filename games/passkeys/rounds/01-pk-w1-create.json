@@ -1,0 +1,101 @@
+{
+  "id": "pk-w1-create",
+  "order": 1,
+  "phase": "warmup",
+  "title": "Warm-up 1: Make a Passkey",
+  "text": "Alex creates a passkey for shop.example. The website asks, the authenticator makes a key pair, and the website stores half of it.",
+  "held": "The website holds a public key. The private key never left the authenticator.",
+  "steps": [
+    {
+      "id": "ask",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Send a fresh random challenge, with your site's name",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "make"
+        },
+        {
+          "label": "Send the same challenge you send everyone",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A challenge everyone shares can be answered once and reused forever. It has to be new and random each time."
+        }
+      ]
+    },
+    {
+      "id": "make",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Make a new key pair for shop.example and keep the private key",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "store"
+        },
+        {
+          "label": "Reuse the key pair you made for another site",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "One key for two sites links the accounts and shares their fate. A passkey belongs to exactly one site."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Create request",
+        "fields": [
+          {
+            "label": "site",
+            "value": "shop.example"
+          },
+          {
+            "label": "challenge",
+            "value": "fresh, random"
+          }
+        ]
+      }
+    },
+    {
+      "id": "store",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Store the public key against Alex's account",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Ask the authenticator for the private key too, for safekeeping",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "The private key never leaves the authenticator. A site that holds it has rebuilt the password database."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "New credential",
+        "fields": [
+          {
+            "label": "public key",
+            "value": "included"
+          },
+          {
+            "label": "challenge",
+            "value": "signed"
+          }
+        ]
+      }
+    }
+  ]
+}

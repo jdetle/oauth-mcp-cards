@@ -1,0 +1,135 @@
+{
+  "id": "wi-a2-laptop",
+  "order": 21,
+  "phase": "assessment",
+  "title": "The Stolen Laptop",
+  "text": "An engineer's laptop is stolen. On it was a copy of one service's private key and certificate, taken for debugging last week.",
+  "held": "The copy on the laptop was already useless, and nobody had to race to make it so.",
+  "steps": [
+    {
+      "id": "renew",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Issue the renewed identity",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "call"
+        },
+        {
+          "label": "Refuse to renew",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Renewal request",
+        "fields": [
+          {
+            "label": "for",
+            "value": "billing"
+          },
+          {
+            "label": "presented from",
+            "value": "billing's own pod, attested",
+            "sealed": true,
+            "check": "Attest where this request comes from",
+            "ok": "From billing's pod on its node."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "presented from",
+        "value": "an unknown machine outside the cluster",
+        "detail": "The request comes from a machine that is not in the cluster.",
+        "correct": "Refuse to renew",
+        "why": "A key that has left its workload should not be able to renew itself. Renewal re-checks what is asking.",
+        "reveal": "The renewal request came from a machine outside the cluster, holding a copied key."
+      },
+      "temptations": [
+        {
+          "label": "Extend the old certificate for a week while the team investigates",
+          "why": "Extending it extends the thief's access too. The investigation is exactly when it should run out."
+        }
+      ]
+    },
+    {
+      "id": "call",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Serve the request",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Inbound call",
+        "fields": [
+          {
+            "label": "caller",
+            "value": "billing"
+          },
+          {
+            "label": "certificate",
+            "value": "issued 20 minutes ago",
+            "sealed": true,
+            "check": "Check the certificate's dates",
+            "ok": "Issued 20 minutes ago, valid for 40 more."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "certificate",
+        "value": "expired six days ago",
+        "detail": "This certificate expired six days ago.",
+        "correct": "Refuse the request",
+        "why": "The stolen copy had already expired. That only helps if receivers refuse expired certificates.",
+        "reveal": "The call used the certificate copied to the laptop, which had expired six days earlier."
+      }
+    }
+  ],
+  "teaches": [
+    "A credential that lasts an hour is worth an hour to a thief.",
+    "Keys copied out “for debugging” are how identities leave their workloads."
+  ],
+  "question": {
+    "text": "Before play: what limits the damage of the stolen key the most?",
+    "answer": "a",
+    "why": "The laptop is gone whatever its password was. What matters is how long the things on it keep working.",
+    "options": [
+      {
+        "id": "a",
+        "label": "Identities that expire within the hour"
+      },
+      {
+        "id": "b",
+        "label": "A stronger password on the laptop"
+      },
+      {
+        "id": "c",
+        "label": "A larger firewall"
+      },
+      {
+        "id": "d",
+        "label": "Renaming the service"
+      }
+    ]
+  }
+}

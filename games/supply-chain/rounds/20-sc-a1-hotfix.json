@@ -1,0 +1,135 @@
+{
+  "id": "sc-a1-hotfix",
+  "order": 20,
+  "phase": "assessment",
+  "title": "The Friday Hotfix",
+  "text": "A fix has to ship tonight. A branch is merged and an artifact with the right name appears, ready to deploy.",
+  "held": "It shipped tonight, and anyone could show where it came from.",
+  "steps": [
+    {
+      "id": "merge",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Build the hotfix",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "ship"
+        },
+        {
+          "label": "Refuse to build",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Hotfix merged",
+        "fields": [
+          {
+            "label": "change",
+            "value": "null check in checkout"
+          },
+          {
+            "label": "branch",
+            "value": "release/2.4 (protected)",
+            "sealed": true,
+            "check": "Check which branch this came from",
+            "ok": "The protected release branch."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "branch",
+        "value": "a personal fork",
+        "detail": "This commit is from a personal fork, not the release branch.",
+        "correct": "Refuse to build",
+        "why": "Urgency is when the usual route gets skipped. A build from a fork is code nobody on the release branch approved.",
+        "reveal": "The hotfix commit came from a personal fork, not the protected branch."
+      },
+      "temptations": [
+        {
+          "label": "Skip the tests: there's no time tonight",
+          "why": "A hotfix that breaks checkout is a second incident. The checks are what make shipping at night survivable."
+        }
+      ]
+    },
+    {
+      "id": "ship",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Deploy the hotfix",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse to deploy",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Hotfix artifact",
+        "fields": [
+          {
+            "label": "artifact",
+            "value": "app-2.4.2"
+          },
+          {
+            "label": "built",
+            "value": "by the pipeline, from release/2.4",
+            "sealed": true,
+            "check": "Check the provenance",
+            "ok": "Built by the pipeline from the release branch."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "built",
+        "value": "on a laptop, uploaded by hand",
+        "detail": "No pipeline provenance: this was built on a laptop and uploaded.",
+        "correct": "Refuse to deploy",
+        "why": "The right name on an artifact built by hand is the classic route for a backdoor during an incident.",
+        "reveal": "The hotfix artifact had been built on a laptop and uploaded by hand."
+      }
+    }
+  ],
+  "teaches": [
+    "Incidents are when controls get waived, which is why attackers like them.",
+    "The fast path and the safe path should be the same path."
+  ],
+  "question": {
+    "text": "Before play: what would make this hotfix safe to ship tonight?",
+    "answer": "b",
+    "why": "A name, a person's word and a local test are all claims. Provenance from the pipeline is evidence.",
+    "options": [
+      {
+        "id": "a",
+        "label": "It has the right name and version number"
+      },
+      {
+        "id": "b",
+        "label": "You can show where it was built, and from what"
+      },
+      {
+        "id": "c",
+        "label": "A senior engineer says it is fine"
+      },
+      {
+        "id": "d",
+        "label": "It worked on the author's machine"
+      }
+    ]
+  }
+}

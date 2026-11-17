@@ -1,0 +1,127 @@
+{
+  "id": "sc-l1-provenance",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: Who Built This?",
+  "text": "The build system publishes an artifact to the registry, and the deployer pulls it. Each can check where it came from.",
+  "held": "The artifact carried a signed account of its origin, and both hops read it.",
+  "steps": [
+    {
+      "id": "publish",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Accept and publish it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "pull"
+        },
+        {
+          "label": "Reject the upload",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Publish request",
+        "fields": [
+          {
+            "label": "artifact",
+            "value": "app-2.4.0"
+          },
+          {
+            "label": "digest",
+            "value": "sha256:9f2c…"
+          },
+          {
+            "label": "provenance",
+            "value": "built by the pipeline from commit 4be1f0a",
+            "sealed": true,
+            "check": "Check the provenance attestation",
+            "ok": "Signed by the build system: built from commit 4be1f0a (tag v2.4.0)."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "provenance",
+        "value": "none attached",
+        "detail": "No attestation. Nothing says where this artifact came from.",
+        "correct": "Reject the upload",
+        "why": "An artifact with no provenance could have been built anywhere, by anyone who can upload.",
+        "reveal": "The artifact arrived at the Registry with no provenance attached."
+      },
+      "temptations": [
+        {
+          "label": "Publish now and attach the provenance later",
+          "why": "Later never checks anything. Once it is published, others pull it; the account of its origin has to arrive with it."
+        }
+      ]
+    },
+    {
+      "id": "pull",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Deploy it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse to deploy",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Artifact for deploy",
+        "fields": [
+          {
+            "label": "artifact",
+            "value": "app-2.4.0"
+          },
+          {
+            "label": "policy",
+            "value": "only artifacts built by the pipeline from main"
+          },
+          {
+            "label": "digest",
+            "value": "sha256:9f2c… (the one in the provenance)",
+            "sealed": true,
+            "check": "Compare the digest with the provenance",
+            "ok": "The digest matches what the build system signed."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "digest",
+        "value": "sha256:d00d… (not the one in the provenance)",
+        "detail": "The digest differs from the one the build system signed.",
+        "correct": "Refuse to deploy",
+        "why": "The name was right and the bytes were not. This is a different artifact wearing the same label.",
+        "reveal": "The artifact served to the Deployer was not the one the build produced."
+      },
+      "temptations": [
+        {
+          "label": "Deploy to production first and verify afterwards",
+          "why": "Verifying after it runs is finding out, not preventing. The gate is before production or it isn't a gate."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "Provenance is a signed statement from the builder: this artifact, from this commit, by this pipeline.",
+    "A digest ties the name to exact bytes. Compare it with what was signed.",
+    "A check after deployment is a report, not a control."
+  ]
+}

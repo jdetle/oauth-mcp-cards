@@ -1,0 +1,139 @@
+{
+  "id": "wi-a1-move",
+  "order": 20,
+  "phase": "assessment",
+  "title": "The Migration",
+  "text": "Billing moves from the data centre to the cloud. Its old firewall rule let it in by address, and that address is gone.",
+  "held": "Billing was recognised in its new home for what it is, not where it is.",
+  "steps": [
+    {
+      "id": "reissue",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Issue the billing identity",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "arrive"
+        },
+        {
+          "label": "Refuse to issue",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Identity request from a new location",
+        "fields": [
+          {
+            "label": "asks to be",
+            "value": "billing"
+          },
+          {
+            "label": "node",
+            "value": "a cloud node, first seen today"
+          },
+          {
+            "label": "attested as",
+            "value": "the same billing image and service account",
+            "sealed": true,
+            "check": "Attest the workload on its new node",
+            "ok": "Same billing image, same service account, new node."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "attested as",
+        "value": "a different image using billing's name",
+        "detail": "A different image, labelled billing.",
+        "correct": "Refuse to issue",
+        "why": "A move is when things get waved through. A new image with an old name is not billing.",
+        "reveal": "The workload on the new node was a different image using billing's name."
+      }
+    },
+    {
+      "id": "arrive",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Accept the connection",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the connection",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Connection from a new address",
+        "fields": [
+          {
+            "label": "source",
+            "value": "a cloud address the ledger has never seen"
+          },
+          {
+            "label": "identity",
+            "value": "billing, valid certificate",
+            "sealed": true,
+            "check": "Verify the caller's certificate",
+            "ok": "A valid billing certificate."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "identity",
+        "value": "none: only a request to be let in as before",
+        "detail": "No certificate. The caller asks to be allowed because it “used to be on the list”.",
+        "correct": "Refuse the connection",
+        "why": "The address list was never identity, and now it isn't even accurate. No certificate, no connection.",
+        "reveal": "The connection from the new address presented no identity."
+      },
+      "temptations": [
+        {
+          "label": "Add the whole cloud address range to the allow list",
+          "why": "Everyone else's workloads live in that range too. An address rule that wide is an open door."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "Identity that travels with the workload survives a move. Address rules don't.",
+    "Migrations are when exceptions get granted. The checks are the same on day one."
+  ],
+  "question": {
+    "text": "Before play: which idea is this scenario testing?",
+    "answer": "a",
+    "why": "The address changed and the workload didn't. Only an identity tied to the workload itself still means anything.",
+    "options": [
+      {
+        "id": "a",
+        "label": "Identity comes from what a workload is, not where it runs"
+      },
+      {
+        "id": "b",
+        "label": "Longer-lived certificates are safer"
+      },
+      {
+        "id": "c",
+        "label": "A firewall rule is enough between services"
+      },
+      {
+        "id": "d",
+        "label": "Services should share one password"
+      }
+    ]
+  }
+}

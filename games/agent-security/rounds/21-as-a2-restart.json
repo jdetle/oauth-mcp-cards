@@ -54,12 +54,6 @@
           "why": "It is a real request from the on-call engineer. Check who is asking, then act."
         }
       ],
-      "temptations": [
-        {
-          "label": "Restart it yourself with the admin credential: quicker than delegating",
-          "why": "The admin credential covers every environment. Using it directly for a one-service restart is the widest possible way to do a narrow job."
-        }
-      ],
       "slip": {
         "from": "client",
         "title": "On-call request",
@@ -84,7 +78,13 @@
         "correct": "Refuse the request",
         "why": "No person asked for this restart. A pasted line in a channel is content, however much it looks like an order.",
         "reveal": "The restart “request” was a pasted runbook line, not a request from the on-call engineer."
-      }
+      },
+      "temptations": [
+        {
+          "label": "Restart it yourself with the admin credential: quicker than delegating",
+          "why": "The admin credential covers every environment. Using it directly for a one-service restart is the widest possible way to do a narrow job."
+        }
+      ]
     },
     {
       "id": "ops",
@@ -150,12 +150,6 @@
           "why": "It targets staging, as asked. Check, then run it."
         }
       ],
-      "temptations": [
-        {
-          "label": "Restart the dependent services too, in case they're stale",
-          "why": "One service was asked for. Each extra restart is an outage nobody requested."
-        }
-      ],
       "slip": {
         "from": "idp",
         "title": "API call",
@@ -180,7 +174,13 @@
         "correct": "Refuse the call",
         "why": "The restart was pointed at production. The API was the last place that could have caught it.",
         "reveal": "The restart call was pointed at production, not staging."
-      }
+      },
+      "temptations": [
+        {
+          "label": "Restart the dependent services too, in case they're stale",
+          "why": "One service was asked for. Each extra restart is an outage nobody requested."
+        }
+      ]
     }
   ]
 }

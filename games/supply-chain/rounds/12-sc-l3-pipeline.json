@@ -1,0 +1,148 @@
+{
+  "id": "sc-l3-pipeline",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: The Borrowed Key",
+  "text": "A change is merged, built, signed and published. Who approved it, and who signed the result?",
+  "held": "Two people stood behind the change, and the pipeline (not a person) signed the build.",
+  "steps": [
+    {
+      "id": "merge",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Build it",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "sign"
+        },
+        {
+          "label": "Refuse to build",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Merge to main",
+        "fields": [
+          {
+            "label": "change",
+            "value": "fix rounding in invoices"
+          },
+          {
+            "label": "reviewed by",
+            "value": "a second maintainer",
+            "sealed": true,
+            "check": "Check who reviewed this change",
+            "ok": "Approved by a second maintainer before merge."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "reviewed by",
+        "value": "nobody: pushed straight to main",
+        "detail": "No review. The change was pushed directly to the release branch.",
+        "correct": "Refuse to build",
+        "why": "Unreviewed code on the release branch means one stolen account can ship anything.",
+        "reveal": "The change reached main without anyone reviewing it."
+      },
+      "temptations": [
+        {
+          "label": "Reuse the build cache from a fork to save ten minutes",
+          "why": "A cache written by a fork is input from outside the project. A poisoned cache puts someone else's code into your artifact."
+        }
+      ]
+    },
+    {
+      "id": "sign",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Accept and publish it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "gate"
+        },
+        {
+          "label": "Reject the upload",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Publish request",
+        "fields": [
+          {
+            "label": "artifact",
+            "value": "app-2.4.1"
+          },
+          {
+            "label": "signed by",
+            "value": "the build system's own identity",
+            "sealed": true,
+            "check": "Check who signed the artifact",
+            "ok": "Signed by the pipeline's workload identity, with a short-lived certificate."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "signed by",
+        "value": "a developer's personal key",
+        "detail": "Signed with a personal key, from a laptop.",
+        "correct": "Reject the upload",
+        "why": "A personal key can sign anything from anywhere. Releases are signed by the pipeline so the signature means “built here”.",
+        "reveal": "The artifact was signed with a developer's personal key instead of the pipeline's identity."
+      }
+    },
+    {
+      "id": "gate",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Deploy it",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Deploy the hotfix image a teammate built locally: it has the same fix",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "The same fix is a claim. The local image has no review, no provenance and no pipeline signature behind it."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Artifact for deploy",
+        "fields": [
+          {
+            "label": "artifact",
+            "value": "app-2.4.1"
+          },
+          {
+            "label": "policy",
+            "value": "built by the pipeline, from main, reviewed"
+          }
+        ]
+      }
+    }
+  ],
+  "teaches": [
+    "Two-person review means no single account can ship code alone.",
+    "The pipeline signs releases, with an identity that can't leave the pipeline. A person's key proves only that a person signed.",
+    "Shared caches and local builds are inputs nobody reviewed."
+  ]
+}

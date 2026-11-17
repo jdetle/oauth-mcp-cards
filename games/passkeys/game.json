@@ -1,0 +1,58 @@
+{
+  "id": "passkeys",
+  "order": 5,
+  "title": "Passkeys",
+  "tagline": "A passkey signs you in without a password to steal or a code to read out. Why can't it be phished, and where is the weak spot that's left?",
+  "accent": "#9b7bff",
+  "engine": "scripted",
+  "seats": {
+    "client": {
+      "name": "User",
+      "brief": "The person signing in. Confirms with a touch, a fingerprint or a PIN."
+    },
+    "application": {
+      "name": "Browser",
+      "brief": "Carries requests between the website and the authenticator, and states where a page really came from."
+    },
+    "idp": {
+      "name": "Authenticator",
+      "brief": "The phone or security key. Holds one private key per website and never lets it out."
+    },
+    "mcp": {
+      "name": "Website",
+      "brief": "Holds only public keys. Issues a fresh challenge and checks the signature that comes back."
+    }
+  },
+  "teaches": [
+    "A passkey is a key pair made for one website. The private key never leaves the authenticator; the website stores only the public key.",
+    "The browser, not the page, says which site is asking. A look-alike site has no key to ask for.",
+    "Every sign-in signs a fresh challenge, so a recorded response is worthless later.",
+    "The remaining weak spot is the way back in when the passkey is lost."
+  ],
+  "glossary": [
+    {
+      "term": "Passkey",
+      "means": "A key pair created for one website, used instead of a password."
+    },
+    {
+      "term": "Origin",
+      "means": "The real address a page was loaded from, as the browser sees it."
+    },
+    {
+      "term": "Challenge",
+      "means": "A random value the website sends for one sign-in attempt. The authenticator signs it."
+    },
+    {
+      "term": "User verification",
+      "means": "The authenticator checking it is really you (fingerprint, face, PIN), not just that someone touched it."
+    },
+    {
+      "term": "Relying party",
+      "means": "The website that relies on the passkey to know who you are."
+    },
+    {
+      "term": "Signature counter",
+      "means": "A number some authenticators raise with each use. If it ever goes backwards, a copy exists."
+    }
+  ]
+}

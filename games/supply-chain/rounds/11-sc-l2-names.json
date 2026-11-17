@@ -1,0 +1,121 @@
+{
+  "id": "sc-l2-names",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: One Letter Off",
+  "text": "A developer adds an HTTP library. The build system resolves the name, and the registry decides where that name comes from.",
+  "held": "The name was read, and it resolved from where it was supposed to.",
+  "steps": [
+    {
+      "id": "add",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Resolve it and write the lockfile",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "fetch"
+        },
+        {
+          "label": "Reject the change",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Dependency change",
+        "fields": [
+          {
+            "label": "purpose",
+            "value": "HTTP client library"
+          },
+          {
+            "label": "source",
+            "value": "the public index"
+          },
+          {
+            "label": "package name",
+            "value": "requests",
+            "sealed": true,
+            "check": "Read the package name letter by letter",
+            "ok": "requests: the well-known library."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "package name",
+        "value": "reqeusts",
+        "detail": "reqeusts: two letters swapped. Not the library you think it is.",
+        "correct": "Reject the change",
+        "why": "A typo in a dependency name installs whatever someone registered under the typo. That is a stranger's code in your build.",
+        "reveal": "The dependency was spelled reqeusts, a look-alike of the real library."
+      },
+      "temptations": [
+        {
+          "label": "Let the installer pick the closest matching name",
+          "why": "The closest name is exactly what a typosquatter registers. A dependency is the name you reviewed, or nothing."
+        }
+      ]
+    },
+    {
+      "id": "fetch",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Serve the package",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Fetch request",
+        "fields": [
+          {
+            "label": "package",
+            "value": "billing-utils 3.1.0"
+          },
+          {
+            "label": "requested by",
+            "value": "the pipeline"
+          },
+          {
+            "label": "resolves from",
+            "value": "the company's private index",
+            "sealed": true,
+            "check": "Check which index this name resolves from",
+            "ok": "The private index, where the company publishes it."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "resolves from",
+        "value": "the public index, under the same name",
+        "detail": "The public index has a package with this internal name, at a higher version.",
+        "correct": "Refuse the request",
+        "why": "An internal name answered by the public index is dependency confusion: whoever registered it there gets their code into your build.",
+        "reveal": "The internal package name billing-utils was being answered by the public index."
+      }
+    }
+  ],
+  "teaches": [
+    "A dependency name is an instruction to run someone's code. Read it.",
+    "Internal names must resolve from internal sources only; otherwise a public package of the same name wins.",
+    "Tools that guess the name you meant are guessing on an attacker's behalf."
+  ]
+}

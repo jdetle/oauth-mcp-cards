@@ -1,0 +1,164 @@
+{
+  "id": "pk-a2-relay",
+  "order": 21,
+  "phase": "assessment",
+  "title": "The Relay",
+  "text": "A message links to a sign-in page for Alex's bank. It looks perfect, because it is passing everything through to the real bank as Alex types.",
+  "held": "The relay had nothing it could pass along.",
+  "steps": [
+    {
+      "id": "choose",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Use the passkey",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "sign"
+        },
+        {
+          "label": "Type the six-digit code instead: it's quicker",
+          "category": "send",
+          "tone": "send",
+          "verdict": "trap",
+          "next": "end",
+          "why": "A code can be typed into any page, and a relay passes it straight on. A passkey can't be handed to the wrong site."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Sign-in page",
+        "fields": [
+          {
+            "label": "looks like",
+            "value": "bank.example"
+          },
+          {
+            "label": "also offers",
+            "value": "“or type the code from your app”"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sign",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Sign with bank.example's key",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "verify"
+        },
+        {
+          "label": "Refuse: there is no key for this site",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Sign request",
+        "fields": [
+          {
+            "label": "challenge",
+            "value": "fresh, random"
+          },
+          {
+            "label": "origin",
+            "value": "https://bank.example",
+            "sealed": true,
+            "check": "Look up which site this request is from",
+            "ok": "https://bank.example: you hold a key for it."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "origin",
+        "value": "https://bank-example.secure-login.net",
+        "detail": "No key exists for this address.",
+        "correct": "Refuse: there is no key for this site",
+        "why": "The relay can show the bank's page but can't change its own address, and the key is tied to the address.",
+        "reveal": "The page was a real-time relay at bank-example.secure-login.net."
+      }
+    },
+    {
+      "id": "verify",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Sign Alex in",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject the sign-in",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Signed response",
+        "fields": [
+          {
+            "label": "signature",
+            "value": "valid"
+          },
+          {
+            "label": "origin in the signed data",
+            "value": "https://bank.example",
+            "sealed": true,
+            "check": "Read the origin inside the signed data",
+            "ok": "Signed for https://bank.example."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "origin in the signed data",
+        "value": "https://bank-example.secure-login.net",
+        "detail": "Signed for the relay's address, not the bank's.",
+        "correct": "Reject the sign-in",
+        "why": "Whatever reached the authenticator, the origin it signed gives the relay away.",
+        "reveal": "The response had been signed for the relay's origin."
+      }
+    }
+  ],
+  "teaches": [
+    "Codes and passwords work on whatever page you type them into. A passkey works on one site.",
+    "A relay can copy everything about a page except where it is."
+  ],
+  "question": {
+    "text": "Before play: why does a passkey survive this when a one-time code doesn't?",
+    "answer": "a",
+    "why": "The relay can forward anything Alex types. It cannot make the authenticator sign for the bank's address from its own.",
+    "options": [
+      {
+        "id": "a",
+        "label": "Its signature is tied to the site's real address"
+      },
+      {
+        "id": "b",
+        "label": "It is longer than a code"
+      },
+      {
+        "id": "c",
+        "label": "People are more careful with passkeys"
+      },
+      {
+        "id": "d",
+        "label": "Codes take longer to expire"
+      }
+    ]
+  }
+}

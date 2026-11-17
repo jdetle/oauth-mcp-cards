@@ -1,0 +1,106 @@
+{
+  "id": "wi-l2-rotate",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: Short Lives",
+  "text": "Billing's identity is about to expire. Later, the ledger receives a call from a certificate that was withdrawn this morning.",
+  "held": "The key never left the workload, and renewal happened before anything broke.",
+  "steps": [
+    {
+      "id": "renew",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Renew now and swap certificates without dropping calls",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "check"
+        },
+        {
+          "label": "Keep using the old one until something breaks",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Something breaking is the outage. Renewal is routine precisely so that expiry never arrives as a surprise."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Renewal notice",
+        "fields": [
+          {
+            "label": "identity",
+            "value": "billing"
+          },
+          {
+            "label": "expires in",
+            "value": "5 minutes"
+          }
+        ]
+      },
+      "temptations": [
+        {
+          "label": "Copy the private key to a shared volume so every replica can use it",
+          "why": "A key on a shared volume belongs to everything that can mount the volume. Each replica gets its own identity; keys don't travel."
+        }
+      ]
+    },
+    {
+      "id": "check",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Serve the request",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Inbound call",
+        "fields": [
+          {
+            "label": "caller",
+            "value": "billing"
+          },
+          {
+            "label": "expires",
+            "value": "in 59 minutes"
+          },
+          {
+            "label": "status",
+            "value": "current, not withdrawn",
+            "sealed": true,
+            "check": "Check the certificate against the revocation list",
+            "ok": "Not on the revocation list."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "status",
+        "value": "withdrawn this morning: its key was exposed",
+        "detail": "This certificate was revoked this morning after its key was exposed.",
+        "correct": "Refuse the request",
+        "why": "A revoked certificate still looks valid until someone checks the list. That check is the only thing revocation does.",
+        "reveal": "The certificate presented had been revoked that morning after its key was exposed."
+      }
+    }
+  ],
+  "teaches": [
+    "Short lifetimes turn a stolen key into a short problem.",
+    "Private keys stay inside the workload that owns them. Sharing one makes several things indistinguishable.",
+    "Revocation works only for receivers that look."
+  ]
+}

@@ -1,40 +1,12 @@
-"""Writes games/agent-security/. Rounds are authored here as Python data (less quoting than
-raw JSON) and emitted as one JSON file each; the server lints them at load."""
+"""Agent Security: delegation, the confused deputy, and prompt injection."""
 import json, os, sys
-
-OUT = os.path.join(os.path.dirname(__file__), "..", "games", "agent-security")
-
-def card(label, verdict="correct", tone="send", category=None, why=None, next="end", chip=None):
-    c = {"label": label, "category": category or {"send": "send", "go": "accept", "stop": "refuse"}[tone], "tone": tone, "verdict": verdict, "next": next}
-    if why: c["why"] = why
-    if chip: c["chip"] = chip
-    return c
-
-def f(label, value, check=None, ok=None):
-    d = {"label": label, "value": value}
-    if check: d.update(sealed=True, check=check, ok=ok)
-    return d
-
-def step(id, actor, cards, slip=None, intrusion=None, tempt=None):
-    """tempt: [(label, why)] optional cards that look helpful and break the chain if played."""
-    s = {"id": id, "actor": actor, "cards": cards}
-    if tempt: s["temptations"] = [{"label": l, "why": w} for l, w in tempt]
-    if slip: s["slip"] = slip
-    if intrusion: s["intrusion"] = intrusion
-    return s
+sys.path.insert(0, os.path.dirname(__file__))
+from lib import *
 
 def tstep(tempt, *a, **k):
     return step(*a, tempt=tempt, **k)
 
-def slip(frm, title, fields, note=None):
-    s = {"from": frm, "title": title, "fields": fields}
-    if note: s["note"] = note
-    return s
-
-def intr(field, value, detail, correct, why, reveal):
-    return {"field": field, "value": value, "detail": detail, "correct": correct, "why": why, "reveal": reveal}
-
-U, O, S, T = "client", "application", "idp", "mcp"  # User, Orchestrator, Sub-agent, Tool
+OUT = os.path.join(ROOT, "agent-security")
 
 GAME = {
   "id": "agent-security", "order": 2, "title": "Agent Security",

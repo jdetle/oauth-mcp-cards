@@ -1,0 +1,105 @@
+{
+  "id": "pk-l4-breach",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: The Breach",
+  "text": "The shop's database is stolen: every account's public key. Days later, a sign-in arrives from a device-bound key whose counter looks odd.",
+  "held": "The stolen table signed nothing, and the counter moved the way it should.",
+  "steps": [
+    {
+      "id": "news",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Carry on: a public key can't sign anything",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "count"
+        },
+        {
+          "label": "Assume your account is open to whoever has the table",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A public key only checks signatures; it can't make them. That is the difference from a stolen password table."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Breach notice",
+        "fields": [
+          {
+            "label": "stolen",
+            "value": "the table of public keys"
+          },
+          {
+            "label": "passwords stolen",
+            "value": "none: there aren't any"
+          }
+        ]
+      }
+    },
+    {
+      "id": "count",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Sign the user in",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Stop and flag the account",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Signed response",
+        "fields": [
+          {
+            "label": "signature",
+            "value": "valid"
+          },
+          {
+            "label": "key type",
+            "value": "device-bound (it keeps a counter)"
+          },
+          {
+            "label": "signature counter",
+            "value": "218, up from 217",
+            "sealed": true,
+            "check": "Compare the counter with the last one seen",
+            "ok": "Higher than last time, as expected."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "signature counter",
+        "value": "41, though 217 was seen yesterday",
+        "detail": "The counter went backwards.",
+        "correct": "Stop and flag the account",
+        "why": "Two devices are answering with the same key, and one of them is a copy. The counter is how that shows.",
+        "reveal": "The signature counter had gone backwards: a copy of the key was in use."
+      },
+      "temptations": [
+        {
+          "label": "Reset the stored counter so the warning goes away",
+          "why": "The warning is the only sign that the key was copied. Clearing it tells the copy it is welcome."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "A stolen list of public keys lets nobody sign in.",
+    "For device-bound keys, a counter that goes backwards means a clone."
+  ]
+}

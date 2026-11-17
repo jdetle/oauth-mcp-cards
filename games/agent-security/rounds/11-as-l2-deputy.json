@@ -68,12 +68,6 @@
           "why": "It is the customer's own order. Check, then fetch it."
         }
       ],
-      "temptations": [
-        {
-          "label": "Fetch all of this customer's orders while you're there",
-          "why": "The customer asked for one order. Pulling the rest because you can is more data in the conversation than anyone asked for."
-        }
-      ],
       "slip": {
         "from": "application",
         "title": "Delegated lookup",
@@ -102,7 +96,13 @@
         "correct": "Refuse the lookup",
         "why": "The customer asked for somebody else's order. The agent could read it; the customer may not.",
         "reveal": "Order 8841 belonged to a different customer than the one asking."
-      }
+      },
+      "temptations": [
+        {
+          "label": "Fetch all of this customer's orders while you're there",
+          "why": "The customer asked for one order. Pulling the rest because you can is more data in the conversation than anyone asked for."
+        }
+      ]
     },
     {
       "id": "query",
@@ -122,12 +122,6 @@
           "verdict": "wrong",
           "next": "end",
           "why": "The query runs as the customer and can only see their rows. Check, then run it."
-        }
-      ],
-      "temptations": [
-        {
-          "label": "Switch to the service account: it's faster",
-          "why": "Speed is the argument every confused deputy makes. The service account sees every customer's rows; this query should see one customer's."
         }
       ],
       "slip": {
@@ -154,7 +148,13 @@
         "correct": "Refuse the query",
         "why": "A customer's question ran with the agent's full access. The database was the last place that could have noticed.",
         "reveal": "The query arrived running as the service account, not as the customer."
-      }
+      },
+      "temptations": [
+        {
+          "label": "Switch to the service account: it's faster",
+          "why": "Speed is the argument every confused deputy makes. The service account sees every customer's rows; this query should see one customer's."
+        }
+      ]
     }
   ]
 }

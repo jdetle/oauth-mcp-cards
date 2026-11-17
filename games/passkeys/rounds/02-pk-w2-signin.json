@@ -1,0 +1,80 @@
+{
+  "id": "pk-w2-signin",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: Sign In",
+  "text": "Alex comes back to shop.example. The browser carries the request; the authenticator answers it.",
+  "held": "The browser said where the page came from, and a person confirmed before anything was signed.",
+  "steps": [
+    {
+      "id": "carry",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Pass it on, adding the address the page was really loaded from",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "sign"
+        },
+        {
+          "label": "Pass it on with whatever site name the page gives",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "A page can call itself anything. The browser's job is to state the real origin, which the page can't change."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Sign-in request",
+        "fields": [
+          {
+            "label": "page says",
+            "value": "Sign in to Shop"
+          },
+          {
+            "label": "challenge",
+            "value": "fresh, random"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sign",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Ask Alex to confirm, then sign with shop.example's key",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Sign straight away without asking",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "If nobody has to be there, malware on the device can sign in whenever it likes. A touch proves a person is present."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Sign request",
+        "fields": [
+          {
+            "label": "origin",
+            "value": "https://shop.example"
+          },
+          {
+            "label": "challenge",
+            "value": "fresh, random"
+          }
+        ]
+      }
+    }
+  ]
+}

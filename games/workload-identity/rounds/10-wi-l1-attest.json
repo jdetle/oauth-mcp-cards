@@ -1,0 +1,163 @@
+{
+  "id": "wi-l1-attest",
+  "order": 10,
+  "phase": "learning",
+  "title": "Learning: Prove What You Are",
+  "text": "A workload asks for the billing identity, calls the ledger through the mesh, and the ledger answers. Each hop can look before it trusts.",
+  "held": "The identity went to the real billing workload, the call was one policy allows, and the ledger saw a valid certificate.",
+  "steps": [
+    {
+      "id": "attest",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Issue the billing identity",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "policy"
+        },
+        {
+          "label": "Refuse to issue",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Identity request",
+        "fields": [
+          {
+            "label": "asks to be",
+            "value": "billing"
+          },
+          {
+            "label": "attested as",
+            "value": "the billing image, under billing's service account",
+            "sealed": true,
+            "check": "Attest the workload: what is actually running?",
+            "ok": "The node agent confirms the billing image, running under billing's service account."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "attested as",
+        "value": "an unknown image in a debug pod",
+        "detail": "The node agent reports an unrecognised image in a debug pod.",
+        "correct": "Refuse to issue",
+        "why": "Issuing on a name alone gives the billing identity to whatever asks for it. Attestation is the difference between a name and an identity.",
+        "reveal": "The workload asking for billing's identity was an unknown image in a debug pod."
+      },
+      "temptations": [
+        {
+          "label": "Issue now and attest at the first renewal",
+          "why": "For that first hour an unverified workload holds a real identity. An hour is plenty."
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Forward the call",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "serve"
+        },
+        {
+          "label": "Block the call",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Outbound call",
+        "fields": [
+          {
+            "label": "from",
+            "value": "billing"
+          },
+          {
+            "label": "to",
+            "value": "ledger"
+          },
+          {
+            "label": "policy for this call",
+            "value": "allowed: billing may read the ledger",
+            "sealed": true,
+            "check": "Look up the policy for this caller and this action",
+            "ok": "Allowed: billing → ledger, read."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "policy for this call",
+        "value": "not allowed: this is a write, and billing may only read",
+        "detail": "Billing may read the ledger. This call is a write.",
+        "correct": "Block the call",
+        "why": "Billing was who it said it was, and still had no business writing to the ledger. Identity is not permission.",
+        "reveal": "The call from billing was a write, which policy does not allow."
+      }
+    },
+    {
+      "id": "serve",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Serve the request",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Inbound call",
+        "fields": [
+          {
+            "label": "action",
+            "value": "read last month's entries"
+          },
+          {
+            "label": "caller's certificate",
+            "value": "billing, valid for 41 more minutes",
+            "sealed": true,
+            "check": "Verify the caller's certificate",
+            "ok": "Billing's certificate: valid, 41 minutes left."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "caller's certificate",
+        "value": "billing, expired three hours ago",
+        "detail": "The certificate expired three hours ago.",
+        "correct": "Refuse the request",
+        "why": "An expired identity is exactly what a thief is left holding. Honouring it makes the expiry meaningless.",
+        "reveal": "The certificate presented to the Service had expired three hours earlier."
+      }
+    }
+  ],
+  "teaches": [
+    "The issuer checks what is running before it issues. A name in a request is only a claim.",
+    "Authentication answers who; policy answers whether this caller may do this.",
+    "Expiry is a control only if the receiver enforces it."
+  ]
+}

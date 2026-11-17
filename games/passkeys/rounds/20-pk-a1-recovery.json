@@ -1,0 +1,135 @@
+{
+  "id": "pk-a1-recovery",
+  "order": 20,
+  "phase": "assessment",
+  "title": "The Lost Phone",
+  "text": "Someone contacts support: they've lost their phone, and would like passkeys turned off and a sign-in code emailed instead.",
+  "held": "The way back into the account was as hard to fake as the passkey itself.",
+  "steps": [
+    {
+      "id": "recover",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Start recovery",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "enrol"
+        },
+        {
+          "label": "Decline the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Recovery request",
+        "fields": [
+          {
+            "label": "asks for",
+            "value": "passkey off, code by email"
+          },
+          {
+            "label": "proof",
+            "value": "passed the recovery steps the owner set up",
+            "sealed": true,
+            "check": "Run the account's own recovery checks",
+            "ok": "Passed: the recovery steps set up when the passkey was created."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "proof",
+        "value": "none: a confident voice and the account's email address",
+        "detail": "No recovery step was passed. The caller knows the email address and is in a hurry.",
+        "correct": "Decline the request",
+        "why": "If support will switch the passkey off for anyone who asks nicely, the passkey was never the lock.",
+        "reveal": "The recovery request came with no proof at all."
+      },
+      "temptations": [
+        {
+          "label": "Read out the backup codes to speed things up",
+          "why": "Backup codes are passwords. Reading them to a caller is handing over the account."
+        }
+      ]
+    },
+    {
+      "id": "enrol",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Forward the request to the authenticator",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse to forward it",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Create a new passkey",
+        "fields": [
+          {
+            "label": "page says",
+            "value": "Set up your new device"
+          },
+          {
+            "label": "origin",
+            "value": "https://shop.example",
+            "sealed": true,
+            "check": "Read the address the page was loaded from",
+            "ok": "The page is from https://shop.example."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "origin",
+        "value": "https://shop-example.recover-account.net",
+        "detail": "The setup page is not from shop.example.",
+        "correct": "Refuse to forward it",
+        "why": "Recovery is when people expect unusual pages. A new passkey made for the wrong site is the attacker's passkey.",
+        "reveal": "The “new device” page was served from a look-alike recovery site."
+      }
+    }
+  ],
+  "teaches": [
+    "An account is as strong as its weakest way in. Recovery is usually that way.",
+    "Fallbacks (emailed codes, backup codes, support overrides) bring back everything passkeys removed."
+  ],
+  "question": {
+    "text": "Before play: what is the weakest part of this account?",
+    "answer": "b",
+    "why": "Nobody breaks the signature. They ask for the passkey to be turned off.",
+    "options": [
+      {
+        "id": "a",
+        "label": "The passkey's cryptography"
+      },
+      {
+        "id": "b",
+        "label": "The way back in when the passkey is gone"
+      },
+      {
+        "id": "c",
+        "label": "The length of the challenge"
+      },
+      {
+        "id": "d",
+        "label": "The browser"
+      }
+    ]
+  }
+}

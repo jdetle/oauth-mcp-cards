@@ -1,0 +1,112 @@
+{
+  "id": "wi-l3-federate",
+  "order": 12,
+  "phase": "learning",
+  "title": "Learning: Someone Else's Issuer",
+  "text": "A partner company's reporting service calls in. Its identity comes from the partner's issuer, not yours.",
+  "held": "The partner's identity was accepted because you chose to trust that issuer, and for the one thing partners may do.",
+  "steps": [
+    {
+      "id": "border",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Forward it to the service",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "scope"
+        },
+        {
+          "label": "Block the call",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Inbound call from outside",
+        "fields": [
+          {
+            "label": "caller",
+            "value": "the partner's reporting service"
+          },
+          {
+            "label": "trust domain",
+            "value": "partner.example (federated)",
+            "sealed": true,
+            "check": "Check the trust domain against the federation list",
+            "ok": "partner.example: on the federation list, bundle current."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "trust domain",
+        "value": "partner-example.net (not federated)",
+        "detail": "partner-example.net is not on the federation list. It only resembles the partner's domain.",
+        "correct": "Block the call",
+        "why": "Anyone can run an issuer and name it something familiar. A foreign identity counts only if you chose to trust the authority behind it.",
+        "reveal": "The call came from a look-alike trust domain that was never federated."
+      }
+    },
+    {
+      "id": "scope",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Return the monthly totals",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Partner request",
+        "fields": [
+          {
+            "label": "caller",
+            "value": "partner reporting (verified)"
+          },
+          {
+            "label": "asks for",
+            "value": "monthly totals",
+            "sealed": true,
+            "check": "Check the request against what partners may do",
+            "ok": "Partners may read monthly totals. This is that."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "asks for",
+        "value": "individual customer records",
+        "detail": "Partners may read monthly totals. This asks for customer records.",
+        "correct": "Refuse the request",
+        "why": "The partner was genuine and still not entitled to customer records. Verified is not the same as allowed.",
+        "reveal": "The partner's request was for individual customer records, which partners may not read."
+      },
+      "temptations": [
+        {
+          "label": "Return everything they could want: they're a trusted partner",
+          "why": "Trusted to be who they are, not trusted with everything. Each caller gets what its role allows and no more."
+        }
+      ]
+    }
+  ],
+  "teaches": [
+    "Trusting another organisation's identities is a decision you make per issuer, not something a name earns.",
+    "Federation tells you who is calling. Your own policy still decides what they get."
+  ]
+}

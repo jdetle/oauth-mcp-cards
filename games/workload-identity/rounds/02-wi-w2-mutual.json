@@ -1,0 +1,80 @@
+{
+  "id": "wi-w2-mutual",
+  "order": 2,
+  "phase": "warmup",
+  "title": "Warm-up 2: Both Ways",
+  "text": "Billing connects to the ledger. Each side has a certificate from the company's issuer.",
+  "held": "Each end knew who the other was before a single request was sent.",
+  "steps": [
+    {
+      "id": "dial",
+      "actor": "client",
+      "cards": [
+        {
+          "label": "Verify it, then present your own certificate",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "answer"
+        },
+        {
+          "label": "Send the request without checking who answered",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "If you don't check the server, anything that answers on that address receives your request and your data."
+        }
+      ],
+      "slip": {
+        "from": "mcp",
+        "title": "Server certificate",
+        "fields": [
+          {
+            "label": "name",
+            "value": "ledger"
+          },
+          {
+            "label": "issued by",
+            "value": "the company issuer"
+          }
+        ]
+      }
+    },
+    {
+      "id": "answer",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Accept: both sides are known",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Accept anything that comes from inside the network",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "trap",
+          "next": "end",
+          "why": "Inside the network is where an intruder sits after the first breach. An address is a location, not an identity."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Client certificate",
+        "fields": [
+          {
+            "label": "name",
+            "value": "billing"
+          },
+          {
+            "label": "issued by",
+            "value": "the company issuer"
+          }
+        ]
+      }
+    }
+  ]
+}

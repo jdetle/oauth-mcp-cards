@@ -1,0 +1,112 @@
+{
+  "id": "wi-l4-inside",
+  "order": 13,
+  "phase": "learning",
+  "title": "Learning: Already Inside",
+  "text": "A call arrives from an address inside the cluster. Later, a request reaches the user service asking for an export of every account.",
+  "held": "Being inside the network earned nothing: the caller had an identity, and the identity had the right.",
+  "steps": [
+    {
+      "id": "door",
+      "actor": "application",
+      "cards": [
+        {
+          "label": "Forward the call",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "export"
+        },
+        {
+          "label": "Block the call",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "client",
+        "title": "Call from inside the cluster",
+        "fields": [
+          {
+            "label": "source address",
+            "value": "10.0.4.17"
+          },
+          {
+            "label": "identity",
+            "value": "frontend, valid certificate",
+            "sealed": true,
+            "check": "Ask the caller for its identity",
+            "ok": "Presents a valid frontend certificate."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "identity",
+        "value": "none presented",
+        "detail": "No certificate. Only an inside address.",
+        "correct": "Block the call",
+        "why": "An inside address is where an intruder is standing after the first breach. Zero trust means position earns nothing.",
+        "reveal": "The call came from an inside address with no identity at all."
+      },
+      "temptations": [
+        {
+          "label": "Allow everything from the cluster's address range",
+          "why": "That rule is the flat network: one compromised pod and every service is reachable."
+        }
+      ]
+    },
+    {
+      "id": "export",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Run the export",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Refuse the request",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Request",
+        "fields": [
+          {
+            "label": "action",
+            "value": "export all user accounts"
+          },
+          {
+            "label": "caller's role",
+            "value": "admin-tool, which may export",
+            "sealed": true,
+            "check": "Check what this caller's role allows",
+            "ok": "admin-tool: export is allowed."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "caller's role",
+        "value": "frontend, which may not export",
+        "detail": "The caller is frontend. Frontend may read one account at a time, not export them all.",
+        "correct": "Refuse the request",
+        "why": "A real, verified frontend asking for every account is what a compromised frontend looks like.",
+        "reveal": "The export request came from the frontend service, which is not allowed to export."
+      }
+    }
+  ],
+  "teaches": [
+    "Network position is not identity. Every call is authenticated, wherever it comes from.",
+    "Least privilege limits what a compromised but genuine service can do."
+  ]
+}

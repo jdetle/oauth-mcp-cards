@@ -1,0 +1,116 @@
+{
+  "id": "pk-l2-replay",
+  "order": 11,
+  "phase": "learning",
+  "title": "Learning: Played Back",
+  "text": "Someone recorded one of Alex's sign-ins last week and sends it again today.",
+  "held": "Today's sign-in answered today's challenge.",
+  "steps": [
+    {
+      "id": "issue",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Issue a new random challenge for this attempt",
+          "category": "send",
+          "tone": "send",
+          "verdict": "correct",
+          "next": "sign"
+        },
+        {
+          "label": "Reuse last week's challenge: it worked then",
+          "category": "send",
+          "tone": "send",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "If the challenge repeats, so can the answer. A recorded response would sign the attacker in."
+        }
+      ]
+    },
+    {
+      "id": "sign",
+      "actor": "idp",
+      "cards": [
+        {
+          "label": "Confirm with Alex and sign this challenge",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "verify"
+        },
+        {
+          "label": "Sign a batch of future challenges now, to save time",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Signatures made in advance can be stolen and used later. Each one answers a challenge that exists now."
+        }
+      ],
+      "slip": {
+        "from": "application",
+        "title": "Sign request",
+        "fields": [
+          {
+            "label": "origin",
+            "value": "https://shop.example"
+          },
+          {
+            "label": "challenge",
+            "value": "the one just issued"
+          }
+        ]
+      }
+    },
+    {
+      "id": "verify",
+      "actor": "mcp",
+      "cards": [
+        {
+          "label": "Sign Alex in",
+          "category": "accept",
+          "tone": "go",
+          "verdict": "correct",
+          "next": "end"
+        },
+        {
+          "label": "Reject the sign-in",
+          "category": "refuse",
+          "tone": "stop",
+          "verdict": "wrong",
+          "next": "end",
+          "why": "Nothing was wrong with it. Refusing something legitimate without looking is its own failure: check, then act."
+        }
+      ],
+      "slip": {
+        "from": "idp",
+        "title": "Signed response",
+        "fields": [
+          {
+            "label": "signature",
+            "value": "valid for Alex's public key"
+          },
+          {
+            "label": "challenge signed",
+            "value": "the one issued four seconds ago",
+            "sealed": true,
+            "check": "Compare the signed challenge with the one you issued",
+            "ok": "It is the challenge issued for this attempt."
+          }
+        ]
+      },
+      "intrusion": {
+        "field": "challenge signed",
+        "value": "one issued last Tuesday",
+        "detail": "This response answers a challenge from last week.",
+        "correct": "Reject the sign-in",
+        "why": "A genuine signature, recorded and played back. The fresh challenge is what makes last week's answer worthless.",
+        "reveal": "The response was a recording from last week, replayed."
+      }
+    }
+  ],
+  "teaches": [
+    "A challenge is used once. That is all it takes to defeat a recording.",
+    "The website must compare the signed challenge with the one it issued, not just verify the signature."
+  ]
+}

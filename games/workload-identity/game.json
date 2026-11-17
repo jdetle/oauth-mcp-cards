@@ -1,0 +1,57 @@
+{
+  "id": "workload-identity",
+  "order": 4,
+  "title": "Workload Identity",
+  "tagline": "Services call each other all day with no person in the loop. How does one know who is calling, and what that caller may do?",
+  "accent": "#3dffa2",
+  "engine": "scripted",
+  "seats": {
+    "client": {
+      "name": "Caller",
+      "brief": "A service that needs something from another. Has to prove what it is."
+    },
+    "application": {
+      "name": "Mesh Proxy",
+      "brief": "Sits between services and enforces which may talk to which."
+    },
+    "idp": {
+      "name": "Issuer",
+      "brief": "Checks what a workload really is, then gives it a short-lived identity."
+    },
+    "mcp": {
+      "name": "Service",
+      "brief": "The one being called. Decides whether to answer, and with what."
+    }
+  },
+  "teaches": [
+    "A workload's identity comes from what it is (attested), not from where it runs or what it says its name is.",
+    "Identities are short-lived and stay inside the workload. A stolen one soon stops working.",
+    "Knowing who is calling is half of it. What that caller may do is a separate question."
+  ],
+  "glossary": [
+    {
+      "term": "Workload identity",
+      "means": "A cryptographic name for a running service, issued after checking what it actually is."
+    },
+    {
+      "term": "Attestation",
+      "means": "Evidence about a workload (its image, its node, its service account) that the issuer checks before issuing."
+    },
+    {
+      "term": "Mutual TLS",
+      "means": "Both ends of a connection present a certificate, so each knows who the other is."
+    },
+    {
+      "term": "Trust domain",
+      "means": "The set of identities issued by one authority. Another organisation's is trusted only if you chose to federate with it."
+    },
+    {
+      "term": "Zero trust",
+      "means": "Being inside the network earns nothing. Every call is authenticated and authorised."
+    },
+    {
+      "term": "Revocation",
+      "means": "Withdrawing an identity before it expires, because its key may be in the wrong hands."
+    }
+  ]
+}
