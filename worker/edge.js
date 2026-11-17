@@ -1,11 +1,12 @@
-// jdetle.com/mcp-oauth → the game (AWS CloudFront → ALB → Fargate). Everything else on
-// jdetle.com is untouched: this Worker only runs on the route jdetle.com/mcp-oauth*.
+// jdetle.com/games → the game series (AWS CloudFront → ALB → Fargate). Everything else on
+// jdetle.com is untouched: this Worker only runs on the routes jdetle.com/games* and
+// jdetle.com/mcp-oauth* (where the site used to live; those links are redirected).
 //
 // It also vouches for the visitor's address. Behind this Worker the game server only ever
 // sees Cloudflare, which would make every player share one rate limit. So the Worker signs
 // "<timestamp>.<visitor ip>" with an Ed25519 key. The key pair is generated here, inside
 // Cloudflare, on first use and kept in KV; the server holds only the public half
-// (published at /mcp-oauth/__edge-key), so no secret is shared and a forged header won't verify.
+// (published at /games/__edge-key), so no secret is shared and a forged header won't verify.
 //
 // And it is the doorbell. The game server scales itself to zero when nobody has played for a
 // while (games are saved in DynamoDB). When a request finds the origin down, the Worker calls
@@ -13,7 +14,19 @@
 // a page, creating or joining a room, a table reconnecting. A background refresh of the room
 // list never wakes it. Hashed static assets are cached at the edge so they never reach AWS twice.
 
-const PREFIX = "/mcp-oauth";
+const PREFIX = "/games";
+// The old address. env.LEGACY_MODE = "redirect" answers it here at the edge; anything else
+// passes it to the origin (used for the few minutes a move takes).
+const LEGACY = "/mcp-oauth";
+
+const under = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`);
+
+/** Where an old link goes now: the old home is the OAuth game; everything else keeps its path. */
+function moved(url) {
+  const rest = url.pathname.slice(LEGACY.length);
+  if (rest === "" || rest === "/") return `${PREFIX}/?game=oauth-mcp`;
+  return `${PREFIX}${rest}${url.search}`;
+}
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -67,11 +80,15 @@ function down(request, env, ctx, { ws, nav }) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    // the route pattern also matches e.g. /mcp-oauthx: leave anything that isn't ours to the blog
-    if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return fetch(request);
+    // the route patterns also match e.g. /gamesx: leave anything that isn't ours to the blog
+    const legacy = under(url.pathname, LEGACY);
+    if (!legacy && !under(url.pathname, PREFIX)) return fetch(request);
+    if (legacy && env.LEGACY_MODE === "redirect") {
+      return new Response(null, { status: 308, headers: { location: moved(url), "cache-control": "public, max-age=3600" } });
+    }
 
     const { key, publicHex } = await signingKey(env);
-    if (url.pathname === `${PREFIX}/__edge-key`) {
+    if (url.pathname === `${PREFIX}/__edge-key` || url.pathname === `${LEGACY}/__edge-key`) {
       return new Response(JSON.stringify({ alg: "Ed25519", publicKey: publicHex }), {
         headers: { "content-type": "application/json", "cache-control": "no-store" },
       });
@@ -81,7 +98,7 @@ export default {
     const ws = (request.headers.get("upgrade") ?? "").toLowerCase() === "websocket";
     const nav = get && !ws && (request.headers.get("accept") ?? "").includes("text/html");
     // content-hashed files never change: serve them from the edge after the first fetch
-    const hashed = get && url.pathname.startsWith(`${PREFIX}/_next/static/`);
+    const hashed = get && (url.pathname.startsWith(`${PREFIX}/_next/static/`) || url.pathname.startsWith(`${LEGACY}/_next/static/`));
     const cacheKey = new Request(url.origin + url.pathname, { method: "GET" });
     if (hashed) {
       const hit = await caches.default.match(cacheKey);
