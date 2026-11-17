@@ -874,3 +874,29 @@ select {
   .row > a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 @media (max-width: 1099px) { code, kbd { font-size: max(0.85em, 12px); } }
+
+/* ---- phones, your turn: the question and your cards on one screen ----------------------
+   What you're answering (the scenario, or the slip on the wire) sits directly above your
+   cards; the board drops below until you've played. */
+@media (max-width: 1099px) {
+  .stack.my-turn > .board,
+  .stack.my-turn > .board ~ :not(.wire):not(.hand-panel) { order: 1; }
+  .stack.my-turn > .scenario { gap: 8px; }
+
+  /* cards wrap two-up instead of scrolling sideways (no card is ever cut off) */
+  .hand { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; overflow: visible; padding: 4px 0 2px; }
+  .card { min-height: 0; padding: 10px 12px 12px; gap: 6px; }
+  .card::after { width: 30px; height: 14px; right: 8px; bottom: 8px; }
+  .card .label { font-size: 0.9rem; line-height: 1.35; }
+  .hand-group-head span { font-size: 0.8rem; }
+
+  /* the briefing reads as prose: proportional type packs about a third more per line */
+  .briefing { font-family: inherit; font-size: 1rem; line-height: 1.45; }
+
+  /* host bar: round picker and Jump share a row */
+  .hostbar label { flex: 1 1 0; }
+}
+@media (max-width: 1099px) {
+  /* the highlighted cards and the "Your move" banner already say it */
+  .stack.my-turn .hand-head > .muted { display: none; }
+}

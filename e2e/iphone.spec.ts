@@ -82,7 +82,6 @@ test("iPhone: on your turn the slip and your first card fit on one screen; the r
   // touch screens: no "press 1–9" hint or number badges
   await expect(page.locator(".card .key").first()).toBeHidden();
   await expect(page.getByText("press 1–9")).toBeHidden();
-  await expect(page.getByText("Your turn: tap a highlighted card")).toBeVisible();
 
   await playCard(page, "Forward the token");
   await expect(result(page)).toBeVisible({ timeout: 20_000 });
@@ -97,6 +96,27 @@ test("iPhone: on your turn the slip and your first card fit on one screen; the r
   // the roster is a tap away
   await page.locator(".ready-count").click();
   await expect(page.locator(".ready-roster li").first()).toBeVisible();
+});
+
+test("iPhone: first move (nothing on the wire): the question and your cards share one screen", async ({ page }) => {
+  test.setTimeout(90_000);
+  await createRoom(page, "Cy", "Client");
+  await fillWithSims(page);
+  await jumpTo(page, "Learning: On-Behalf-Of");
+  await expect(page.locator(".card.playable").first()).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(1500);
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT.replace(".png", "-client.png") });
+  expect(await inView(page, ".scenario .briefing"), "the question").toBe("ok");
+  expect(await inView(page, ".card.playable"), "your first playable card").toBe("ok");
+  // the board waits below your hand until you've played
+  const order = await page.evaluate(() => {
+    const y = (s: string) => document.querySelector(s)!.getBoundingClientRect().top;
+    return y(".hand-panel") < y(".board");
+  });
+  expect(order).toBe(true);
+  // no card is cut off at the side
+  const clipped = await page.locator(".hand .card").evaluateAll((cs) => cs.filter((c) => c.getBoundingClientRect().right > innerWidth + 1).length);
+  expect(clipped).toBe(0);
 });
 
 test.describe("iPhone SE size", () => {

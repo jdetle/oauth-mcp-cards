@@ -30,8 +30,9 @@ function attention(state: PublicState, you: PrivateView, myTurn: boolean, seated
     return seated && !you.myGuess ? { key: `${r.index}:identify`, selector: ".identify", label: "Pick the flow" } : { key: `${r.index}:start`, selector: ".scenario", label: "New round" };
   }
   const moves = r.log.filter((l) => l.role).length;
+  // your move (even the round's first): the question plus your cards
+  if (myTurn) return { key: `${r.index}:turn:${r.slips.length}`, selector: r.inFlight ? ".wire" : ".scenario", label: "Your move" };
   if (moves === 0) return { key: `${r.index}:start`, selector: ".scenario", label: "New round" };
-  if (myTurn) return { key: `${r.index}:turn:${r.slips.length}`, selector: r.inFlight ? ".wire" : ".hand-panel", label: "Your move" };
   // someone else moved: watch the board (checks don't move the page; they show on the slip)
   return { key: `${r.index}:move:${r.slips.length}`, selector: ".board", label: "New move" };
 }
@@ -70,7 +71,7 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
     let top = el.getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
     // your move: if the slip and your first card don't both fit, keep the card on screen
     // (on a short phone the top of the slip gives way, not the thing you have to tap)
-    const card = t.selector === ".wire" ? document.querySelector(".hand-panel .card.playable") : null;
+    const card = t.label === "Your move" ? document.querySelector(".hand-panel .card.playable") : null;
     if (card) {
       const bottom = card.getBoundingClientRect().bottom + scrollY + 8;
       if (bottom - top > innerHeight) top = bottom - innerHeight;
@@ -82,7 +83,12 @@ export function useFollow(state: PublicState, you: PrivateView, myTurn: boolean,
   const target = attention(state, you, myTurn, seated);
   const key = target?.key ?? null;
   useEffect(() => {
-    if (!target || key === lastKey.current) return;
+    // a game that starts after the page loaded isn't "on load": its first move should scroll
+    if (!target) {
+      if (lastKey.current === null) lastKey.current = "";
+      return;
+    }
+    if (key === lastKey.current) return;
     const first = lastKey.current === null;
     lastKey.current = key;
     if (!stacked || !on || first) return; // don't move the page on load

@@ -176,7 +176,7 @@ function Game(props: {
     <main className="wrap">
       <div className="game">
         <CardFX round={r} />
-        <div className="stack" style={{ minWidth: 0 }}>
+        <div className={`stack${myTurn ? " my-turn" : ""}`} style={{ minWidth: 0 }}>
           <Hud room={props.room} state={state} you={you} conn={conn} role={myRoundRole ?? you.role} follow={follow.stacked ? <FollowToggle on={follow.on} toggle={follow.toggle} /> : null} />
           <JumpPill pending={follow.pending} go={follow.go} />
 
