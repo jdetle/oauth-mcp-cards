@@ -200,6 +200,7 @@ pub struct Config {
     /// signs session cookies; must be the same on every server or a deploy logs everyone out
     pub session_secret: Option<[u8; 32]>,
     pub store: Option<Arc<dyn crate::store::Backend>>,
+    pub idle_sleep: Option<Duration>,
 }
 
 /// "/mcp-oauth/" or "mcp-oauth" -> "/mcp-oauth"; "" or "/" -> "".
@@ -240,11 +241,15 @@ pub struct AppState {
     /// where rooms are saved between servers (None: memory only)
     pub store: Option<Arc<dyn crate::store::Backend>>,
     store_failing_since: Mutex<Option<Instant>>,
+    /// last time anyone did something (created, joined, connected, moved); polling doesn't count
+    last_activity: Mutex<Instant>,
+    /// after this long with no activity the service scales itself to zero (None: never)
+    pub idle_sleep: Option<Duration>,
 }
 
 impl AppState {
     pub fn new(scenarios: Vec<Scenario>, cfg: Config) -> Arc<Self> {
-        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret, base_path, session_secret, store } = cfg;
+        let Config { internal_token, secure_cookies, dev_origin, admin_hash, turnstile_site_key, turnstile_secret, base_path, session_secret, store, idle_sleep } = cfg;
         let turnstile_on = turnstile_site_key.is_some() && turnstile_secret.is_some();
         Arc::new(AppState {
             base_path: normalize_base_path(&base_path),
@@ -261,8 +266,11 @@ impl AppState {
             secure_cookies,
             dev_origin,
             next_conn: AtomicU64::new(1),
+            // sleeping is only safe when games are saved somewhere else
+            idle_sleep: idle_sleep.filter(|_| store.is_some()),
             store,
             store_failing_since: Mutex::new(None),
+            last_activity: Mutex::new(Instant::now()),
         })
     }
 
@@ -420,20 +428,53 @@ impl AppState {
         saved
     }
 
+    /// Someone did something: the idle clock starts again.
+    pub(crate) fn touch(&self) {
+        *self.last_activity.lock().unwrap() = Instant::now();
+    }
+
+    /// Nobody has done anything for a while: save, tell open tables we're going to sleep
+    /// (close code 4408; they show a "wake" button instead of reconnecting), and ask ECS to
+    /// run zero copies of us. The edge Worker starts us again when someone turns up.
+    pub async fn sleep_if_idle(self: &Arc<Self>) {
+        let Some(limit) = self.idle_sleep else { return };
+        let idle = self.last_activity.lock().unwrap().elapsed();
+        if idle < limit {
+            return;
+        }
+        self.close_all(4408, "asleep").await;
+        crate::telemetry::event("server.sleeping", json!({ "idle_s": idle.as_secs() }));
+        eprintln!("idle for {}s: scaling to zero", idle.as_secs());
+        match tokio::task::spawn_blocking(crate::aws::scale_self_to_zero).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                eprintln!("sleep failed: {e}");
+                crate::telemetry::error(&format!("scale to zero failed: {e}"), json!({}));
+            }
+            Err(_) => {}
+        }
+        // either we're about to be stopped, or it failed: don't retry every minute
+        self.touch();
+    }
+
     /// Before this server stops: save everything, then ask every browser to reconnect, which
     /// lands it on the server that's taking over (it loads the saved game).
     pub async fn hand_off(self: &Arc<Self>) {
+        self.close_all(1012, "server restarting").await;
+    }
+
+    async fn close_all(self: &Arc<Self>, code: u16, reason: &'static str) {
         let saved = self.save_changed().await;
         let mut sockets = 0;
         for room in self.rooms.lock().unwrap().values() {
             let r = room.lock().unwrap();
             for c in r.conns.values() {
                 sockets += 1;
-                let _ = c.tx.try_send(Message::Close(Some(CloseFrame { code: 1012, reason: "server restarting".into() })));
+                let _ = c.tx.try_send(Message::Close(Some(CloseFrame { code, reason: reason.into() })));
             }
         }
-        eprintln!("hand-off: saved {saved} rooms, asked {sockets} sockets to reconnect");
-        crate::telemetry::event("server.hand_off", json!({ "saved": saved, "sockets": sockets }));
+        eprintln!("{reason}: saved {saved} rooms, closed {sockets} sockets ({code})");
+        crate::telemetry::event("server.hand_off", json!({ "saved": saved, "sockets": sockets, "code": code }));
     }
 
     pub(crate) fn trusted(&self, headers: &HeaderMap) -> bool {
@@ -648,6 +689,7 @@ async fn create_room(
     );
     let total = rooms.len();
     drop(rooms);
+    state.touch();
     crate::telemetry::event("room.created", json!({ "room": name, "rooms": total, "spectate": spectate }));
     joined(&state, &name, &player)
 }
@@ -694,6 +736,7 @@ async fn join_room(
     r.broadcast();
     let seated = r.game.players.len();
     drop(r);
+    state.touch();
     crate::telemetry::event("room.joined", json!({ "room": name, "players": seated, "spectate": spectate }));
     drive_sims(room.clone());
     joined(&state, &name, &player)
@@ -744,6 +787,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
         return;
     };
     let conn_id = state.next_conn.fetch_add(1, Ordering::Relaxed);
+    state.touch();
     let (tx, mut rx) = mpsc::channel::<Message>(64);
     {
         let mut r = room.lock().unwrap();
@@ -793,6 +837,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, room: Option<Arc
                 r.last_active = Instant::now();
                 r.broadcast();
                 drop(r);
+                state.touch();
                 drive_sims(room.clone());
                 drive_ready(room.clone());
             }
@@ -960,6 +1005,7 @@ pub fn spawn_reaper(state: Arc<AppState>) {
                     (rooms.len(), sockets, playing)
                 };
                 crate::telemetry::metric("server.health", json!({ "rooms": rooms, "sockets": sockets, "rooms_playing": playing }), json!({}));
+                state.sleep_if_idle().await;
             }
             let mut gone = Vec::new();
             state.rooms.lock().unwrap().retain(|name, r| {

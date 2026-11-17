@@ -16,6 +16,7 @@ import {
 } from "../game/types.ts";
 import { wsUrl } from "./api.ts";
 import { track } from "./telemetry.ts";
+import { announceWaking } from "./poll.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { BitGlyph, Board, ScrambleSuit, ScrambleText } from "./Board.tsx";
 import { CardFX } from "./CardFX.tsx";
@@ -25,7 +26,7 @@ import { KeysContext, Seal } from "./Seal.tsx";
 import { CallPair, DiligenceTag, rememberRoom, Timeline } from "./Timeline.tsx";
 import { TokenSlip } from "./Slip.tsx";
 
-type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted";
+type Conn = "connecting" | "open" | "closed" | "unauthorized" | "deleted" | "asleep";
 
 /** WebSocket with automatic reconnect. The session cookie authenticates it; close code 4401 = not joined. */
 function useGame(room: string, attempt: number) {
@@ -49,12 +50,14 @@ function useGame(room: string, attempt: number) {
       ws.onopen = () => {
         backoff = 500;
         setConn("open");
+        announceWaking(false);
       };
       ws.onclose = (e) => {
         if (stopped) return;
         if (e.code !== 1000) track("ws.closed", { code: e.code, wasOpen: backoff === 500, backoff });
         if (e.code === 4401) return setConn("unauthorized");
         if (e.code === 4410) return setConn("deleted"); // an admin closed this game
+        if (e.code === 4408) return setConn("asleep"); // idle: the server went to sleep; don't wake it by reconnecting
         setConn("closed");
         retry = setTimeout(connect, backoff);
         backoff = Math.min(backoff * 2, 8000);
@@ -113,6 +116,31 @@ export function Table({ room }: { room: string }) {
           <h1 className="room-name">{room}</h1>
           <p>This game was closed by an admin.</p>
           <a href={href("/")}>← Back to the lobby</a>
+        </section>
+      </main>
+    );
+  }
+  if (g.conn === "asleep") {
+    return (
+      <main className="wrap stack">
+        <section className="panel stack">
+          <p className="kicker">Paused</p>
+          <h1 className="room-name">{room}</h1>
+          <p>Nobody moved for a while, so the table went to sleep. The game is saved exactly where you left it.</p>
+          <div className="row">
+            <button
+              className="primary"
+              autoFocus
+              onClick={() => {
+                announceWaking(true);
+                track("server.waking", { route: "/ws/:room" });
+                setAttempt((a) => a + 1);
+              }}
+            >
+              Wake the table
+            </button>
+            <a href={href("/")}>← Back to the lobby</a>
+          </div>
         </section>
       </main>
     );

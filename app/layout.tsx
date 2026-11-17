@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { WakingBanner } from "../src/ui/Waking.tsx";
 import { TelemetryStart } from "../src/ui/TelemetryStart.tsx";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
+        <WakingBanner />
         {children}
         <TelemetryStart />
       </body>

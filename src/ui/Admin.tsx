@@ -3,6 +3,7 @@ import { href } from "./paths.ts";
 import { useCallback, useEffect, useState } from "react";
 import { ROLE_NAMES, type Role } from "../game/types.ts";
 import { API_BASE } from "./api.ts";
+import { useVisiblePoll } from "./poll.ts";
 import { Turnstile } from "./Turnstile.tsx";
 
 interface AdminRoom {
@@ -53,11 +54,7 @@ export function Admin() {
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => {
-    if (auth !== "in") return;
-    const t = setInterval(load, 4000);
-    return () => clearInterval(t);
-  }, [auth, load]);
+  useVisiblePoll(load, 10_000, auth === "in");
 
   async function login(e: React.FormEvent) {
     e.preventDefault();

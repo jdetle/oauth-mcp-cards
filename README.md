@@ -270,3 +270,13 @@ Rooms are played in the server's memory, but every change is saved (within a qua
 - **Hand-off**: on SIGTERM (ECS stopping the old task) the server saves every room, then closes each socket with code 1012 ("restarting"). Browsers reconnect at once, the load balancer sends them to the new task, and it loads the game. The table doesn't reset, nobody signs in again.
 - **Sessions**: cookies are signed with `SESSION_SECRET` (64 hex chars, in SSM, created once by `deploy/fargate.sh`), the same on every task. Without it each server would make up its own and a deploy would sign everyone out.
 - **Tested**: `e2e/restart.spec.ts` stops the server mid-round with SIGTERM, starts a new one on the same port, and checks the browser comes back to the same round, the same slip on the wire and the same cards, then plays the round to the end.
+
+## Sleeping when nobody's playing
+
+Games are saved outside the server (see above), so the server itself doesn't need to run when no one is there.
+
+- **Sleep**: after `IDLE_SLEEP_MIN` minutes (20 in production; `IdleSleepMinutes` in `deploy/app.yaml`, `0` = never) with nobody creating, joining, connecting or moving, the server saves every room, closes open tables with code 4408 and sets its own ECS service to zero tasks. Background refreshes (the lobby's room list, the admin page) don't count as activity.
+- **A table left open** shows "Paused: the table went to sleep" with a **Wake the table** button. It does not reconnect by itself, or one forgotten tab would keep the server up forever.
+- **Wake**: the Cloudflare Worker (`worker/edge.js`) sees the origin answer 502/503/504 without our server's headers and calls the wake function (a Lambda URL that can only set the count back to 1). It rings only for requests that mean someone is here: opening a page, creating or joining a room, a table reconnecting. Page loads get a small "Waking the game server" page that carries on by itself; API calls get `503 {waking}` and the page retries for up to two and a half minutes behind a banner. Waking takes about a minute.
+- **Fewer requests**: the lobby refreshes its room list every 30 s and the admin page every 10 s, both only while the tab is visible; telemetry batches every 10 s; content-hashed assets are served from Cloudflare's edge after the first fetch.
+- **What still costs money while asleep**: the load balancer and its public addresses. The Fargate task, which is the part that scales, costs nothing at zero.

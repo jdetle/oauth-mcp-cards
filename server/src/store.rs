@@ -13,7 +13,6 @@ use crate::scenario::Scenario;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 /// Games idle longer than this are gone (also the DynamoDB TTL).
 pub const KEEP_MS: i64 = 6 * 60 * 60 * 1000;
@@ -145,89 +144,18 @@ impl Backend for Dir {
 
 // ---------- DynamoDB (no SDK: one signed JSON POST per call) ----------
 
-#[derive(Clone)]
-struct Creds {
-    key: String,
-    secret: String,
-    token: Option<String>,
-    /// refresh after this (ms since epoch); i64::MAX for static keys
-    until_ms: i64,
-}
-
 pub struct Dynamo {
     table: String,
-    region: String,
-    host: String,
-    agent: ureq::Agent,
-    creds: Mutex<Option<Creds>>,
+    aws: crate::aws::Aws,
 }
 
 impl Dynamo {
     pub fn new(table: String, region: String) -> Self {
-        let host = format!("dynamodb.{region}.amazonaws.com");
-        Dynamo { table, region, host, agent: ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).build(), creds: Mutex::new(None) }
-    }
-
-    /// Fargate task role (container credentials endpoint), else static keys from the environment.
-    fn creds(&self) -> Result<Creds, String> {
-        let now = crate::engine::now_ms();
-        if let Some(c) = self.creds.lock().unwrap().clone().filter(|c| c.until_ms > now) {
-            return Ok(c);
-        }
-        let c = if let Ok(rel) = std::env::var("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") {
-            let v: serde_json::Value = self
-                .agent
-                .get(&format!("http://169.254.170.2{rel}"))
-                .call()
-                .map_err(|e| format!("credentials: {e}"))?
-                .into_json()
-                .map_err(|e| format!("credentials: {e}"))?;
-            Creds {
-                key: v["AccessKeyId"].as_str().ok_or("credentials: no key")?.into(),
-                secret: v["SecretAccessKey"].as_str().ok_or("credentials: no secret")?.into(),
-                token: v["Token"].as_str().map(str::to_string),
-                // refresh well before they expire (they last hours; 10 min is plenty of margin)
-                until_ms: now + 10 * 60 * 1000,
-            }
-        } else {
-            Creds {
-                key: std::env::var("AWS_ACCESS_KEY_ID").map_err(|_| "no AWS credentials")?,
-                secret: std::env::var("AWS_SECRET_ACCESS_KEY").map_err(|_| "no AWS credentials")?,
-                token: std::env::var("AWS_SESSION_TOKEN").ok(),
-                until_ms: i64::MAX,
-            }
-        };
-        *self.creds.lock().unwrap() = Some(c.clone());
-        Ok(c)
+        Dynamo { table, aws: crate::aws::Aws::new(region) }
     }
 
     fn call(&self, op: &str, body: serde_json::Value) -> Result<serde_json::Value, (u16, String)> {
-        let creds = self.creds().map_err(|e| (0, e))?;
-        let body = body.to_string();
-        let target = format!("DynamoDB_20120810.{op}");
-        let amz = amz_date(crate::engine::now_ms());
-        let auth = sigv4_dynamo(&creds, &self.region, &self.host, &target, &amz, &body);
-        let mut req = self
-            .agent
-            .post(&format!("https://{}/", self.host))
-            .set("content-type", "application/x-amz-json-1.0")
-            .set("x-amz-date", &amz)
-            .set("x-amz-target", &target)
-            .set("authorization", &auth);
-        if let Some(t) = &creds.token {
-            req = req.set("x-amz-security-token", t);
-        }
-        match req.send_string(&body) {
-            Ok(r) => r.into_json().map_err(|e| (0, e.to_string())),
-            Err(ureq::Error::Status(code, r)) => {
-                if code == 403 {
-                    // maybe expired credentials: fetch fresh ones next time
-                    *self.creds.lock().unwrap() = None;
-                }
-                Err((code, r.into_string().unwrap_or_default()))
-            }
-            Err(e) => Err((0, e.to_string())),
-        }
+        self.aws.call("dynamodb", &format!("DynamoDB_20120810.{op}"), "application/x-amz-json-1.0", &body)
     }
 
     fn item(rec: &Record) -> serde_json::Value {
@@ -309,44 +237,6 @@ impl Backend for Dynamo {
     }
 }
 
-/// `20261116T182109Z`
-pub fn amz_date(ms: i64) -> String {
-    let iso = crate::telemetry::iso_from_ms(ms); // 2026-11-16T18:21:09.123Z
-    format!("{}{}{}T{}{}{}Z", &iso[0..4], &iso[5..7], &iso[8..10], &iso[11..13], &iso[14..16], &iso[17..19])
-}
-
-fn sha256_hex(s: &str) -> String {
-    use sha2::Digest;
-    hex::encode(sha2::Sha256::digest(s.as_bytes()))
-}
-
-/// The Authorization header for a DynamoDB JSON request (AWS Signature Version 4).
-fn sigv4_dynamo(c: &Creds, region: &str, host: &str, target: &str, amz: &str, body: &str) -> String {
-    let date = &amz[..8];
-    let mut headers = vec![
-        ("content-type", "application/x-amz-json-1.0".to_string()),
-        ("host", host.to_string()),
-        ("x-amz-date", amz.to_string()),
-        ("x-amz-target", target.to_string()),
-    ];
-    if let Some(t) = &c.token {
-        headers.push(("x-amz-security-token", t.clone()));
-    }
-    headers.sort_by(|a, b| a.0.cmp(b.0));
-    let canonical_headers: String = headers.iter().map(|(k, v)| format!("{k}:{}\n", v.trim())).collect();
-    let signed: Vec<&str> = headers.iter().map(|(k, _)| *k).collect();
-    let signed = signed.join(";");
-    let canonical = format!("POST\n/\n\n{canonical_headers}\n{signed}\n{}", sha256_hex(body));
-    let scope = format!("{date}/{region}/dynamodb/aws4_request");
-    let to_sign = format!("AWS4-HMAC-SHA256\n{amz}\n{scope}\n{}", sha256_hex(&canonical));
-    let k = crate::crypto::hmac_bytes(format!("AWS4{}", c.secret).as_bytes(), date);
-    let k = crate::crypto::hmac_bytes(&k, region);
-    let k = crate::crypto::hmac_bytes(&k, "dynamodb");
-    let k = crate::crypto::hmac_bytes(&k, "aws4_request");
-    let sig = crate::crypto::hmac_hex(&k, &to_sign);
-    format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed}, Signature={sig}", c.key)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,22 +270,5 @@ mod tests {
         let r = rec("calm-heron", 7);
         assert_eq!(Dynamo::record(&Dynamo::item(&r)), Some(r.clone()));
         assert_eq!(Dynamo::item(&r)["expires"]["N"], ((r.updated_ms + KEEP_MS) / 1000).to_string());
-    }
-
-    #[test]
-    fn amz_dates() {
-        assert_eq!(amz_date(1_763_317_269_123), "20251116T182109Z");
-    }
-
-    /// AWS's published SigV4 example values are for other services; this pins our canonical
-    /// form so a refactor can't silently change what gets signed.
-    #[test]
-    fn sigv4_header_shape() {
-        let c = Creds { key: "AKIDEXAMPLE".into(), secret: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(), token: Some("tok".into()), until_ms: i64::MAX };
-        let a = sigv4_dynamo(&c, "us-east-1", "dynamodb.us-east-1.amazonaws.com", "DynamoDB_20120810.GetItem", "20261116T000000Z", "{}");
-        assert!(a.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261116/us-east-1/dynamodb/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token;x-amz-target, Signature="));
-        assert_eq!(a.rsplit('=').next().unwrap().len(), 64);
-        let b = sigv4_dynamo(&c, "us-east-1", "dynamodb.us-east-1.amazonaws.com", "DynamoDB_20120810.GetItem", "20261116T000000Z", "{ }");
-        assert_ne!(a, b, "the body is signed");
     }
 }

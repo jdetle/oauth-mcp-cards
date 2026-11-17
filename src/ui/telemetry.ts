@@ -130,7 +130,7 @@ export function startTelemetry() {
   const w = window as unknown as Record<string, unknown>;
 
   if (IDS.s10) {
-    timer = setInterval(() => flush(), 3000);
+    timer = setInterval(() => flush(), 10_000);
     window.addEventListener("pagehide", () => flush(true));
     window.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flush(true));
     push(envelope("page", document.title || location.pathname, { referrer: document.referrer || undefined, width: innerWidth, height: innerHeight }));

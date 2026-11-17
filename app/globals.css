@@ -900,3 +900,7 @@ select {
   /* the highlighted cards and the "Your move" banner already say it */
   .stack.my-turn .hand-head > .muted { display: none; }
 }
+
+/* ---- the server sleeps when nobody's playing; this shows while it starts back up ---- */
+.waking { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #1a1204; border-bottom: 1px solid var(--amber); color: #ffe2b0; font-size: 0.9rem; }
+.waking-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 10px var(--amber); animation: pulse 1s infinite; }

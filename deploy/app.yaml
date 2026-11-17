@@ -30,6 +30,10 @@ Parameters:
     Type: String
     Default: ""
     Description: SSM SecureString parameter name holding the Turnstile secret key
+  IdleSleepMinutes:
+    Type: String
+    Default: "20"
+    Description: Scale to zero after this many minutes with nobody creating, joining, connecting or moving ("0" = never sleep)
   SessionSecretParam:
     Type: String
     Default: /oauth-mcp-cards/session-secret
@@ -115,7 +119,9 @@ Resources:
       Port: 8080
       TargetType: ip
       HealthCheckPath: /api/health
-      HealthCheckIntervalSeconds: 15
+      # quick to notice a task that just started: waking from zero is health-check bound
+      HealthCheckIntervalSeconds: 5
+      HealthCheckTimeoutSeconds: 3
       HealthyThresholdCount: 2
       TargetGroupAttributes:
         - { Key: deregistration_delay.timeout_seconds, Value: "10" }
@@ -173,6 +179,13 @@ Resources:
               - Effect: Allow
                 Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:Scan]
                 Resource: !GetAtt RoomsTable.Arn
+        # when nobody has done anything for IdleSleepMinutes, the task scales its own service to zero
+        - PolicyName: sleep
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: ecs:UpdateService
+                Resource: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${Cluster}/*"
   TaskDef:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -196,6 +209,8 @@ Resources:
             - { Name: BASE_PATH, Value: !Ref BasePath }
             - { Name: ROOMS_TABLE, Value: !Ref RoomsTable }
             - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: IDLE_SLEEP_MIN, Value: !Ref IdleSleepMinutes }
+            - { Name: ECS_CLUSTER, Value: !Ref Cluster }
             - !If [HasEdgeKey, { Name: EDGE_PUBLIC_KEY, Value: !Ref EdgePublicKey }, !Ref "AWS::NoValue"]
           Secrets:
             - { Name: SESSION_SECRET, ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParam}" }
@@ -233,6 +248,58 @@ Resources:
           Subnets: [!Ref SubnetA, !Ref SubnetB]
           SecurityGroups: [!Ref TaskSg]
       LoadBalancers: [{ ContainerName: app, ContainerPort: 8080, TargetGroupArn: !Ref TargetGroup }]
+
+  # ---- wake: the edge Worker calls this when someone turns up and the service is at zero ----
+  # It can only ever set the count to 1, so it is safe to expose; concurrency is capped.
+  WakeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole]
+      Policies:
+        - PolicyName: wake
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [ecs:DescribeServices, ecs:UpdateService]
+                Resource: !Ref Service
+  WakeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 10
+      MemorySize: 128
+      Role: !GetAtt WakeRole.Arn
+      Environment:
+        Variables: { CLUSTER: !Ref Cluster, SERVICE: !GetAtt Service.Name }
+      Code:
+        ZipFile: |
+          import json, os, boto3
+          ecs = boto3.client("ecs")
+          def handler(event, context):
+              c, s = os.environ["CLUSTER"], os.environ["SERVICE"]
+              svc = ecs.describe_services(cluster=c, services=[s])["services"][0]
+              if svc["desiredCount"] == 0:
+                  ecs.update_service(cluster=c, service=s, desiredCount=1)
+                  state = "waking"
+              else:
+                  state = "awake" if svc["runningCount"] > 0 else "starting"
+              return {"statusCode": 200, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps({"state": state})}
+  WakeLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: !Sub "/aws/lambda/${WakeFunction}", RetentionInDays: 7 }
+  WakeUrl:
+    Type: AWS::Lambda::Url
+    Properties: { TargetFunctionArn: !GetAtt WakeFunction.Arn, AuthType: NONE }
+  WakeUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties: { FunctionName: !Ref WakeFunction, Action: lambda:InvokeFunctionUrl, Principal: "*", FunctionUrlAuthType: NONE }
+  WakeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties: { FunctionName: !Ref WakeFunction, Action: lambda:InvokeFunction, Principal: "*", InvokedViaFunctionUrl: true }
 
   # ---- CloudFront: HTTPS + websockets in front of the ALB ----
   Distribution:
@@ -276,3 +343,4 @@ Outputs:
   Service: { Value: !GetAtt Service.Name }
   LogGroup: { Value: !Ref LogGroup }
   RoomsTable: { Value: !Ref RoomsTable }
+  WakeUrl: { Value: !GetAtt WakeUrl.FunctionUrl }

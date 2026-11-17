@@ -19,9 +19,12 @@
 //!   TELEMETRY_ENV   environment tag (default production); RELEASE: version tag
 //!   SESSION_SECRET  64 hex chars that sign session cookies (same on every server, so deploys keep people signed in)
 //!   ROOMS_TABLE     DynamoDB table that keeps games across deploys (or ROOMS_DIR: a directory, for local runs)
+//!   IDLE_SLEEP_MIN  after this many minutes with nobody doing anything, scale the ECS service to zero
+//!                   (needs a room store; the edge Worker wakes it). Unset: never sleep
 //!   SIM_SKILL       0..1, how often simulated players make the right call (default 0.85)
 //!   SIM_DELAY_MS    fixed delay before a simulated player moves (default ~5.6-6.3s, so each card can be read)
 mod admin;
+mod aws;
 mod crypto;
 mod engine;
 mod explain;
@@ -82,6 +85,7 @@ async fn main() {
         base_path: env("BASE_PATH").unwrap_or_default(),
         session_secret: env("SESSION_SECRET").and_then(|h| hex::decode(h.trim()).ok()).and_then(|b| <[u8; 32]>::try_from(b).ok()),
         store: store::from_env(),
+        idle_sleep: env("IDLE_SLEEP_MIN").and_then(|m| m.parse::<u64>().ok()).filter(|m| *m > 0).map(|m| std::time::Duration::from_secs(m * 60)),
     };
     if cfg.session_secret.is_none() {
         eprintln!("note: no SESSION_SECRET (64 hex chars); sessions won't survive a restart");

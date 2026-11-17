@@ -6,6 +6,12 @@
 // "<timestamp>.<visitor ip>" with an Ed25519 key. The key pair is generated here, inside
 // Cloudflare, on first use and kept in KV; the server holds only the public half
 // (published at /mcp-oauth/__edge-key), so no secret is shared and a forged header won't verify.
+//
+// And it is the doorbell. The game server scales itself to zero when nobody has played for a
+// while (games are saved in DynamoDB). When a request finds the origin down, the Worker calls
+// the wake function (env.WAKE_URL), but only for requests that mean someone is here: opening
+// a page, creating or joining a room, a table reconnecting. A background refresh of the room
+// list never wakes it. Hashed static assets are cached at the edge so they never reach AWS twice.
 
 const PREFIX = "/mcp-oauth";
 
@@ -26,8 +32,40 @@ async function signingKey(env) {
   return { key: pair.privateKey, publicHex: record.publicHex };
 }
 
+const DOWN = new Set([502, 503, 504]);
+
+async function wake(env) {
+  if (!env.WAKE_URL) return;
+  try {
+    await fetch(env.WAKE_URL, { method: "POST" });
+  } catch {
+    // the next request will ring again
+  }
+}
+
+const WAKING_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waking up · OAuth for MCP</title><noscript><meta http-equiv="refresh" content="6"></noscript>
+<style>html{background:#04060d;color:#d7f3ff;font:16px/1.5 system-ui,sans-serif}main{max-width:34rem;margin:22vh auto 0;padding:0 24px}
+h1{font:600 1.1rem/1.3 ui-monospace,Menlo,monospace;letter-spacing:.18em;text-transform:uppercase;color:#29f0ff}
+p{color:#9fb6c6}i{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ffa12b;margin-right:10px;animation:p 1s infinite}
+@keyframes p{50%{opacity:.25}}</style></head><body><main><h1><i></i>Waking the game server</h1>
+<p>It sleeps when nobody is playing, to save energy. Starting it takes about a minute; this page will carry on by itself.</p>
+<p id="t"></p></main><script>let s=0;setInterval(()=>{s+=1;document.getElementById("t").textContent=s+"s";},1000);setTimeout(()=>location.reload(),5000);</script></body></html>`;
+
+/** What to say when the origin is down (asleep or starting). */
+function down(request, env, ctx, { ws, nav }) {
+  const intent = ws || nav || !["GET", "HEAD"].includes(request.method);
+  if (intent) ctx.waitUntil(wake(env));
+  const common = { "cache-control": "no-store", "retry-after": "5" };
+  if (nav) return new Response(WAKING_PAGE, { status: 503, headers: { ...common, "content-type": "text/html; charset=utf-8" } });
+  return new Response(JSON.stringify({ error: "The server is waking up. Try again in a minute.", asleep: true, waking: intent }), {
+    status: 503,
+    headers: { ...common, "content-type": "application/json" },
+  });
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     // the route pattern also matches e.g. /mcp-oauthx: leave anything that isn't ours to the blog
     if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return fetch(request);
@@ -37,6 +75,17 @@ export default {
       return new Response(JSON.stringify({ alg: "Ed25519", publicKey: publicHex }), {
         headers: { "content-type": "application/json", "cache-control": "no-store" },
       });
+    }
+
+    const get = request.method === "GET";
+    const ws = (request.headers.get("upgrade") ?? "").toLowerCase() === "websocket";
+    const nav = get && !ws && (request.headers.get("accept") ?? "").includes("text/html");
+    // content-hashed files never change: serve them from the edge after the first fetch
+    const hashed = get && url.pathname.startsWith(`${PREFIX}/_next/static/`);
+    const cacheKey = new Request(url.origin + url.pathname, { method: "GET" });
+    if (hashed) {
+      const hit = await caches.default.match(cacheKey);
+      if (hit) return hit;
     }
 
     const target = new URL(url.pathname + url.search, env.ORIGIN);
@@ -50,7 +99,24 @@ export default {
     headers.set("x-edge-sig", hex(sig));
     headers.set("host", target.host);
 
-    // WebSocket upgrades pass straight through: fetch() returns the 101 and the socket
-    return fetch(new Request(target, { method: request.method, headers, body: request.body, redirect: "manual" }));
+    let res;
+    try {
+      // WebSocket upgrades pass straight through: fetch() returns the 101 and the socket
+      res = await fetch(new Request(target, { method: request.method, headers, body: request.body, redirect: "manual" }));
+    } catch {
+      return down(request, env, ctx, { ws, nav });
+    }
+    // Our server stamps every response with nosniff. A 502/503/504 without it came from the
+    // load balancer or CloudFront: there's no task behind them (asleep, or still starting).
+    if (DOWN.has(res.status) && !res.headers.has("x-content-type-options")) return down(request, env, ctx, { ws, nav });
+
+    if (hashed && res.status === 200) {
+      const copy = new Response(res.clone().body, res);
+      copy.headers.set("cache-control", "public, max-age=31536000, immutable");
+      copy.headers.delete("set-cookie");
+      ctx.waitUntil(caches.default.put(cacheKey, copy.clone()));
+      return copy;
+    }
+    return res;
   },
 };

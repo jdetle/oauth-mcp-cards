@@ -1,8 +1,9 @@
 "use client";
 import { href } from "./paths.ts";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { listRooms } from "./api.ts";
+import { useCallback, useState } from "react";
+import { listRooms, serverAsleep } from "./api.ts";
+import { useVisiblePoll } from "./poll.ts";
 import { JoinForm } from "./JoinForm.tsx";
 import { TimesTable } from "./Seal.tsx";
 import { ReturnToGame } from "./Timeline.tsx";
@@ -14,21 +15,15 @@ export function Lobby() {
   const [open, setOpen] = useState<string | null>(null);
   const go = (room: string) => router.push(`/play/?room=${encodeURIComponent(room)}`);
 
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      const r = await listRooms();
-      if (!alive) return;
-      setOffline(r === null);
-      if (r) setRooms(r);
-    };
-    load();
-    const t = setInterval(load, 4000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
+  const [asleep, setAsleep] = useState(false);
+  const load = useCallback(async () => {
+    const r = await listRooms();
+    setOffline(r === null);
+    setAsleep(serverAsleep);
+    if (r) setRooms(r);
   }, []);
+  // only while the lobby is on screen, and not often: the list rarely changes
+  useVisiblePoll(load, 30_000);
 
   return (
     <main className="wrap">
@@ -51,7 +46,7 @@ export function Lobby() {
         <section className="panel stack" aria-labelledby="rooms-h">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2 id="rooms-h">Open rooms</h2>
-            <span className="muted small" aria-live="polite">{offline ? "Can't reach the game server" : rooms ? `${rooms.length} open` : "Loading…"}</span>
+            <span className="muted small" aria-live="polite">{asleep ? "Server asleep: creating or joining a room wakes it (about a minute)" : offline ? "Can't reach the game server" : rooms ? `${rooms.length} open` : "Loading…"}</span>
           </div>
           {rooms && rooms.length === 0 ? <p className="muted">No rooms yet. Create one.</p> : null}
           <ul className="room-list">
